@@ -1,37 +1,35 @@
 import 'package:flutter/material.dart';
 
-class MyAppBar extends StatelessWidget implements PreferredSizeWidget{
+class MyAppBar extends StatelessWidget implements PreferredSizeWidget {
   const MyAppBar({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: const [
-            Text(
-              '✨ MicroArca ✨', // Título principal
-              style: TextStyle(
-                fontSize: 20.00,
-                fontWeight: FontWeight.bold,
-              ),
+    return AppBar(
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: const [
+          Text(
+            '✨ MicroArca ✨', // Título principal
+            style: TextStyle(
+              fontSize: 20.00,
+              fontWeight: FontWeight.bold,
             ),
-            Text(
-              'Editor de MicroPython para ESP32',
-              style: TextStyle(
-                fontSize: 14.00,
-                fontWeight: FontWeight.normal,
-              ),
+          ),
+          Text(
+            'Editor de MicroPython para ESP32',
+            style: TextStyle(
+              fontSize: 14.00,
+              fontWeight: FontWeight.normal,
             ),
-          ],
-        ),
-        centerTitle: true,
-        backgroundColor: const Color.fromARGB(255, 7, 207, 233),
-		    foregroundColor: Colors.white,
-        elevation: 10.00,
-        shadowColor: const Color.fromARGB(255, 122, 142, 145),
+          ),
+        ],
       ),
+      centerTitle: true,
+      backgroundColor: const Color.fromARGB(255, 7, 207, 233),
+      foregroundColor: Colors.white,
+      elevation: 10.00,
+      shadowColor: const Color.fromARGB(255, 122, 142, 145),
     );
   }
 
