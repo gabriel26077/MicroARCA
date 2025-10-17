@@ -2,10 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:code_text_field/code_text_field.dart';
 import 'package:highlight/languages/python.dart';
 import 'package:flutter_highlight/themes/a11y-light.dart';
-
 import '../widgets/custom_action_bar.dart';
-
-
 
 class EditorPage extends StatefulWidget {
   const EditorPage({super.key});
@@ -14,13 +11,13 @@ class EditorPage extends StatefulWidget {
   State<EditorPage> createState() => _EditorPageState();
 }
 
-class _EditorPageState extends State<EditorPage> {
+class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
   CodeController? _codeController;
+  bool _keyboardVisible = false;
 
   final String _initialCode = """
 # Welcome to MicroArca! 🚀
-# Write your MicroPython code
-# here
+# Write your MicroPython code here
 
 from machine import Pin
 import time
@@ -39,6 +36,7 @@ while True:
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _codeController = CodeController(
       text: _initialCode,
       language: python,
@@ -47,8 +45,18 @@ while True:
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _codeController?.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeMetrics() {
+    final bottomInset = WidgetsBinding.instance.window.viewInsets.bottom;
+    final newValue = bottomInset > 0;
+    if (newValue != _keyboardVisible) {
+      setState(() => _keyboardVisible = newValue);
+    }
   }
 
   @override
@@ -70,7 +78,14 @@ while True:
           ),
         ),
       ),
-      bottomNavigationBar: CustomActionBar(), // <-- coloque aqui
+
+      // ✅ Sem animações — some imediatamente quando o teclado aparece
+      bottomNavigationBar: _keyboardVisible
+          ? const SizedBox.shrink()
+          : SizedBox(
+              height: MediaQuery.of(context).size.height * 0.1,
+              child: const CustomActionBar(),
+            ),
     );
   }
 }
@@ -108,7 +123,6 @@ class _MicroArcaEditorState extends State<MicroArcaEditor> {
     final controller = widget.controller;
     if (controller == null) return;
 
-    // Verifica se foi um Enter pressionado
     if (newText.length > _lastText.length && newText.contains('\n')) {
       final newLineIndex = _findNewLineIndex(_lastText, newText);
       if (newLineIndex != -1) {
@@ -132,35 +146,27 @@ class _MicroArcaEditorState extends State<MicroArcaEditor> {
   }
 
   void _applyIndentation(CodeController controller, String text, int newLineIndex) {
-    // Encontra o início da linha anterior
     int lineStart = newLineIndex - 1;
     while (lineStart >= 0 && text[lineStart] != '\n') {
       lineStart--;
     }
-    lineStart++; // Move para o primeiro caractere da linha
+    lineStart++;
 
-    // Pega a linha anterior
     final String previousLine = text.substring(lineStart, newLineIndex);
     final String trimmedLine = previousLine.trim();
 
-    // Calcula a indentação atual
     final int currentIndent = _getIndentation(previousLine);
-
-    // Verifica se precisa adicionar mais indentação
     final bool shouldIndent = _shouldIndentNextLine(trimmedLine);
 
-    // Calcula a nova indentação
     final int newIndent = currentIndent + (shouldIndent ? 4 : 0);
     final String indentSpaces = ' ' * newIndent;
 
-    // Insere a indentação após o Enter
     if (newIndent > 0) {
       final updatedText = text.replaceRange(
         newLineIndex + 1,
         newLineIndex + 1,
         indentSpaces,
       );
-
       controller.value = controller.value.copyWith(
         text: updatedText,
         selection: TextSelection.collapsed(
@@ -171,38 +177,18 @@ class _MicroArcaEditorState extends State<MicroArcaEditor> {
   }
 
   bool _shouldIndentNextLine(String line) {
-    // Remove comentários da linha para análise
     final lineWithoutComments = line.split('#').first.trim();
-    
     if (lineWithoutComments.isEmpty) return false;
+    if (lineWithoutComments.endsWith(':')) return true;
 
-    // Verifica se a linha termina com ':' (caso mais comum)
-    if (lineWithoutComments.endsWith(':')) {
-      return true;
-    }
-
-    // Palavras-chave que exigem indentação na próxima linha
     final indentKeywords = [
-      'def', 'class', 'if', 'elif', 'else', 'while', 'for', 
+      'def', 'class', 'if', 'elif', 'else', 'while', 'for',
       'try', 'except', 'finally', 'with', 'async def', 'async for', 'async with'
     ];
 
-    // Verifica se a linha começa com alguma palavra-chave de indentação
     for (final keyword in indentKeywords) {
-      if (lineWithoutComments.startsWith('$keyword ') || 
+      if (lineWithoutComments.startsWith('$keyword ') ||
           lineWithoutComments == keyword) {
-        return true;
-      }
-    }
-
-    // Verifica estruturas que abrem blocos sem ':' (menos comum em Python)
-    final blockOpeners = [
-      'def ', 'class ', 'if ', 'elif ', 'else:', 'while ', 'for ',
-      'try:', 'except ', 'finally:', 'with ', 'async def ', 'async for ', 'async with '
-    ];
-
-    for (final opener in blockOpeners) {
-      if (lineWithoutComments.startsWith(opener)) {
         return true;
       }
     }
@@ -242,7 +228,7 @@ class _MicroArcaEditorState extends State<MicroArcaEditor> {
             color: Colors.black.withOpacity(0.1),
             blurRadius: 8,
             offset: const Offset(0, 4),
-          )
+          ),
         ],
       ),
       child: ClipRRect(

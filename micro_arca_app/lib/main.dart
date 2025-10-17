@@ -13,6 +13,8 @@ Future<void> main() async {
     DeviceOrientation.portraitUp,
   ]);
 
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+
   runApp(const MainApp());
 }
 
