@@ -3,6 +3,10 @@ import 'package:code_text_field/code_text_field.dart';
 import 'package:highlight/languages/python.dart';
 import 'package:flutter_highlight/themes/a11y-light.dart';
 
+import '../widgets/custom_action_bar.dart';
+
+
+
 class EditorPage extends StatefulWidget {
   const EditorPage({super.key});
 
@@ -66,6 +70,7 @@ while True:
           ),
         ),
       ),
+      bottomNavigationBar: CustomActionBar(), // <-- coloque aqui
     );
   }
 }

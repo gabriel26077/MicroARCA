@@ -9,7 +9,6 @@ import 'package:micro_arca_app/widgets/top_nav_bar.dart';
 
 // CORREÇÃO DE IMPORT: Mudamos para um caminho relativo para evitar erros de compilação
 // relacionados ao nome do pacote ('micro_arca_app').
-import '../widgets/custom_action_bar.dart';
 
 /// Esse widget lida com o estado de navegação (qual página está aberta nesse momento)
 class MainScreen extends StatefulWidget {
@@ -49,8 +48,7 @@ class _MainScreenState extends State<MainScreen> {
         ],
       ),
 
-      // CORRIGIDO: Removido o 'const' para evitar o erro de compilação.
-      bottomNavigationBar: CustomActionBar(),
+
     );
   }
 }
