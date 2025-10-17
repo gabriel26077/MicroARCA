@@ -19,13 +19,13 @@ class TopNavBar extends StatelessWidget {
       decoration: BoxDecoration(
         color:  const Color.fromARGB(248, 219, 250, 255),
         borderRadius: BorderRadius.circular(50.0),
-        border: Border.all(color: Color.fromARGB(248, 183, 245, 255), width: 1),
-        boxShadow: [
+        border: Border.all(color: const Color.fromARGB(248, 183, 245, 255), width: 1),
+        boxShadow: const [
           BoxShadow(
-            color: const Color.fromRGBO(158, 158, 158, 0.1),
+            color: Color.fromRGBO(158, 158, 158, 0.1),
             spreadRadius: 1,
             blurRadius: 5,
-            offset: const Offset(0, 3),
+            offset: Offset(0, 3),
           ),
         ],
       ),
@@ -73,7 +73,7 @@ class _NavTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Color activeColor = const Color.fromARGB(255, 7, 207, 233);
+    const Color activeColor = Color.fromARGB(255, 7, 207, 233);
     final Color inactiveColor = Colors.grey[700]!;
 
     return Expanded(
