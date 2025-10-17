@@ -7,6 +7,10 @@ import 'package:micro_arca_app/pages/settings_page.dart';
 import 'package:micro_arca_app/widgets/app_bar.dart';
 import 'package:micro_arca_app/widgets/top_nav_bar.dart';
 
+// CORREÇÃO DE IMPORT: Mudamos para um caminho relativo para evitar erros de compilação
+// relacionados ao nome do pacote ('micro_arca_app').
+import '../widgets/custom_action_bar.dart';
+
 /// Esse widget lida com o estado de navegação (qual página está aberta nesse momento)
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -37,19 +41,16 @@ class _MainScreenState extends State<MainScreen> {
       body: Column(
         children: [
           // Our new top navigation component
-          TopNavBar(
-            selectedIndex: _selectedPage,
-            onTap: _onTabTapped,
-          ),
+          TopNavBar(selectedIndex: _selectedPage, onTap: _onTabTapped),
 
           Expanded(
-            child: IndexedStack(
-              index: _selectedPage,
-              children: _pages,
-            ),
+            child: IndexedStack(index: _selectedPage, children: _pages),
           ),
         ],
       ),
+
+      // CORRIGIDO: Removido o 'const' para evitar o erro de compilação.
+      bottomNavigationBar: CustomActionBar(),
     );
   }
 }
