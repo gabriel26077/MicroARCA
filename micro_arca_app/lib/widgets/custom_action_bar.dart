@@ -6,7 +6,7 @@ const Color primaryColor = Color(0xFF00BCD4);
 
 // Constante para a cor amarela dos círculos
 // Este é o amarelo padrão do Material Design
-const Color accentColor = Color(0xFFFFC107); 
+const Color accentColor = Color.fromARGB(255, 238, 255, 0); 
 
 // === 1. WIDGET DE BOTÃO INDIVIDUAL (ActionButton) ===
 // Representa o círculo com ícone e o rótulo de texto.
