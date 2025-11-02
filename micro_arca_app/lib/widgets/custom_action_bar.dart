@@ -1,52 +1,57 @@
+// lib/widgets/custom_action_bar.dart
 import 'package:flutter/material.dart';
 
-// Constante para a cor primária (cian/turquesa) - Ajuste este valor se necessário
-// Este é um exemplo de um turquesa
+// Constante para a cor primária (cian/turquesa)
 const Color primaryColor = Color(0xFF00BCD4); 
 
 // Constante para a cor amarela dos círculos
-// Este é o amarelo padrão do Material Design
 const Color accentColor = Color.fromARGB(255, 238, 255, 0); 
 
 // === 1. WIDGET DE BOTÃO INDIVIDUAL (ActionButton) ===
-// Representa o círculo com ícone e o rótulo de texto.
 class ActionButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
+  final bool isLoading;
 
   const ActionButton({
     Key? key,
     required this.icon,
     required this.label,
     required this.onTap,
+    this.isLoading = false,
   }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    // InkWell permite o efeito de toque (ripple) e captura o evento
     return InkWell(
-      onTap: onTap,
-      // Column para empilhar o círculo e o texto
+      onTap: isLoading ? null : onTap,
       child: Column(
-        mainAxisSize: MainAxisSize.min, // Ocupa o mínimo de espaço vertical
+        mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          // CircleAvatar para o círculo amarelo
           CircleAvatar(
-            radius: 24, // Tamanho do círculo
-            backgroundColor: accentColor, // Fundo amarelo
-            child: Icon(
-              icon,
-              color: Colors.black87, // Ícone escuro para contraste
-              size: 20,
-            ),
+            radius: 24,
+            backgroundColor: isLoading ? Colors.grey : accentColor,
+            child: isLoading
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.black87),
+                    ),
+                  )
+                : Icon(
+                    icon,
+                    color: Colors.black87,
+                    size: 20,
+                  ),
           ),
-          const SizedBox(height: 4), // Espaçamento entre círculo e texto
-          // Texto para o rótulo
+          const SizedBox(height: 4),
           Text(
-            label,
-            style: const TextStyle(
-              color: Colors.black87, // Texto escuro para contraste
+            isLoading ? '...' : label,
+            style: TextStyle(
+              color: isLoading ? Colors.grey : Colors.black87,
               fontSize: 12,
             ),
           ),
@@ -57,60 +62,77 @@ class ActionButton extends StatelessWidget {
 }
 
 // === 2. WIDGET DA BARRA PRINCIPAL (CustomActionBar) ===
-// O container que será usado no bottomNavigationBar do Scaffold.
 class CustomActionBar extends StatelessWidget {
-  const CustomActionBar({Key? key}) : super(key: key);
+  final VoidCallback onLoad;
+  final VoidCallback onSave;
+  final VoidCallback onSend;
+  final VoidCallback onRun;
+  final VoidCallback onStop; // Novo callback para o botão Stop
+  final bool isSendLoading;
+  final bool isRunLoading;
+  final bool isStopLoading; // Novo parâmetro para loading do Stop
 
-  // Função para lidar com o toque de cada botão (deve ser substituída pela lógica real)
-  void _handleTap(String action) {
-    // Você pode usar 'print' ou 'debugPrint' durante o desenvolvimento
-    debugPrint('Ação acionada: $action');
-    // Implemente a lógica de Load, Save, Send, Run aqui
-  }
+  const CustomActionBar({
+    Key? key,
+    required this.onLoad,
+    required this.onSave,
+    required this.onSend,
+    required this.onRun,
+    required this.onStop, // Novo parâmetro obrigatório
+    this.isSendLoading = false,
+    this.isRunLoading = false,
+    this.isStopLoading = false, // Novo parâmetro com valor padrão
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    // Container para definir a cor de fundo e as bordas arredondadas
     return Container(
-      // Padding interno para que os botões não fiquem colados nas bordas
       padding: const EdgeInsets.only(
           top: 10, bottom: 10, left: 20, right: 20), 
       decoration: const BoxDecoration(
-        color: primaryColor, // Cor de fundo primária (cian/turquesa)
-        // Bordas arredondadas apenas no topo
+        color: primaryColor,
         borderRadius: BorderRadius.only(
           topLeft: Radius.circular(20),
           topRight: Radius.circular(20),
         ),
       ),
-      // Row para alinhar os quatro botões horizontalmente
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround, // Distribuição uniforme
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: <Widget>[
           // Botão 1: Load
           ActionButton(
             icon: Icons.folder_open_outlined,
             label: 'Load',
-            onTap: () => _handleTap('Load'),
+            onTap: onLoad,
           ),
           // Botão 2: Save
           ActionButton(
             icon: Icons.save_alt_outlined,
             label: 'Save',
-            onTap: () => _handleTap('Save'),
+            onTap: onSave,
+          ),
+          // Botão 5: Stop (novo botão)
+          ActionButton(
+            icon: Icons.stop,
+            label: 'Stop',
+            onTap: onStop,
+            isLoading: isStopLoading,
           ),
           // Botão 3: Send
           ActionButton(
             icon: Icons.send,
             label: 'Send',
-            onTap: () => _handleTap('Send'),
+            onTap: onSend,
+            isLoading: isSendLoading,
           ),
           // Botão 4: Run
           ActionButton(
             icon: Icons.play_arrow,
             label: 'Run',
-            onTap: () => _handleTap('Run'),
+            onTap: onRun,
+            isLoading: isRunLoading,
           ),
+
         ],
       ),
     );
