@@ -1,180 +1,73 @@
-# ProjetoARCA
+# 🤖 ProjetoARCA
 
-## Repositório no drive
-* [Home](https://link-para-o-drive-removido)
+> ⚠️ **Nota:** Este projeto encontra-se atualmente em fase de **MVP (Mínimo Produto Viável)**.
 
-    * [Administrativo](https://link-para-o-drive-removido)
-    * [Artigos e pesquisas](https://link-para-o-drive-removido)
-    * [Marketing](https://link-para-o-drive-removido)
-    * [Modelagem 3D](https://link-para-o-drive-removido)
-    * [Planejamentos](https://link-para-o-drive-removido)
-    * [Outros](https://link-para-o-drive-removido)
+O **ProjetoARCA** é uma iniciativa que nasceu para democratizar o ensino de robótica e programação em escolas. 
 
-## Artigo
-   [Link para artigo no overleaf](https://link-para-o-artigo-removido)
-   
+Embora o aprendizado de tecnologia esteja cada vez mais presente na educação básica, os custos elevados de kits tradicionais e a necessidade de computadores potentes ou laboratórios dedicados ainda barram o acesso da maioria das escolas.
 
-# 🧩 Guia de Contribuição - Como Contribuir como Desenvolvedor
-
-Bem-vindo(a) ao projeto! 🎉  
-Ficamos muito felizes com o seu interesse em contribuir.  
-Este guia te ajudará a configurar todo o ambiente de desenvolvimento necessário para compilar e rodar o projeto localmente.
+A proposta do **ProjetoARCA** é quebrar essa barreira financeira através de um **ecossistema de robótica e programação de baixo custo**, que não necessita de infraestrutura de ponta e funciona **diretamente pelo celular**.
 
 ---
 
-## 🚀 Passo 1: Instalar o Git
+## 💡 Como Funciona?
 
-O Git é o sistema de controle de versão que usamos para gerenciar o código-fonte.
+O ecossistema é composto por duas frentes integradas que se comunicam de forma simples:
 
-**O que fazer:**  
-Baixe e instale o Git para o seu sistema operacional.
+1. **📱 Aplicativo Móvel (`micro_arca_app/`):** Um ambiente de programação visual e amigável rodando diretamente no smartphone do aluno, permitindo programar e enviar comandos de forma descomplicada.
+2. **🔌 Sistema Embarcado (`embedded/`):** Códigos em **MicroPython** carregados no microcontrolador (ESP32) que servem como presets e interpretadores para entender e executar a comunicação enviada pelo aplicativo. 
 
-🔗 [Download do Git](https://git-scm.com/downloads)
+Esse dispositivo embarcado é extremamente versátil e pode dar vida a:
+- Um pequeno robô móvel.
+- Uma maquete inteligente escolar (ex: automação de luzes de uma casinha didática, sensores de presença).
+- Qualquer sistema experimental ou protótipo que a imaginação dos alunos permitir.
 
----
+### 📸 Demonstração e Galeria
 
-## 🧰 Passo 2: Instalar o Flutter SDK
+#### 📱 Aplicativo (Interface do Usuário)
+Abaixo estão as telas principais do aplicativo, onde os alunos podem escrever e enviar seus códigos, monitorar o console de execução em tempo real e realizar a configuração inteligente da rede local:
 
-O Flutter é o kit de desenvolvimento principal, contendo todas as ferramentas para compilar e criar o aplicativo.
+<p align="center">
+  <img src="./pictures/ediotor-page.png" width="31%" alt="Editor de Código" />
+  <img src="./pictures/console-page.png" width="31%" alt="Console de Execução" />
+  <img src="./pictures/config.png" width="31%" alt="Configurações Wi-Fi" />
+</p>
 
-**O que fazer:**  
-Siga o guia oficial para baixar o SDK e **adicione o `flutter/bin` ao PATH** do sistema, conforme instruído.
+#### 🤖 O Protótipo e a Equipe
+Veja abaixo o primeiro protótipo funcional do robô físico montado com componentes acessíveis e a equipe fundadora do projeto:
 
-🔗 [Documentação Oficial de Instalação do Flutter](https://docs.flutter.dev/get-started/install)
-
----
-
-## 📱 Passo 3: Instalar o Android Studio e o Android SDK
-
-O Android Studio fornece o SDK necessário para compilar e rodar o aplicativo em dispositivos Android.
-
-**O que fazer:**  
-1. Baixe e instale o Android Studio.  
-2. Ao abrir pela primeira vez, siga o assistente de instalação do Android SDK.  
-3. No SDK Manager (`More Actions > SDK Manager`), vá até **SDK Tools** e marque as opções:
-    - **Android SDK Command-line Tools (latest)**, .
-    - **NDK (side by side)**
-    - **CMake**
-
-🔗 [Download do Android Studio](https://developer.android.com/studio)
+<p align="center">
+  <img src="./pictures/primeiro-robo.jpeg" width="48%" alt="Primeiro Protótipo de Robô" />
+  <img src="./pictures/equipe-fundadora.jpeg" width="48%" alt="Equipe Fundadora" />
+</p>
 
 ---
 
-## ⚙️ Passo 4: Configurar Variáveis de Ambiente do Android
+## 📂 Estrutura do Repositório
 
-O Flutter precisa saber onde está o Android SDK instalado.
+O repositório está organizado de forma modular:
 
-**O que fazer:**  
-Crie a variável de ambiente `ANDROID_HOME` apontando para o local onde o Android SDK foi instalado.
-
-🔗 [Guia de Configuração para Android (Flutter)](https://docs.flutter.dev/get-started/install/linux#android-setup)
+* 📱 **[micro_arca_app/](./micro_arca_app/)**: Contém o aplicativo mobile desenvolvido em Flutter.
+* 🔌 **[embedded/](./embedded/)**: Guarda os scripts em MicroPython (incluindo gerenciamento de resets rápidos e Wi-Fi inteligentes) que rodam no ESP32.
 
 ---
 
-## 💻 Passo 5: Instalar o Visual Studio Code (VS Code)
+## 🚀 Como Contribuir
 
-Editor de código recomendado para o desenvolvimento em Flutter.
+Se você é um desenvolvedor e deseja configurar o ambiente de desenvolvimento local, confira o nosso guia passo a passo em:
 
-**O que fazer:**  
-Baixe e instale o VS Code.
-
-🔗 [Download do VS Code](https://code.visualstudio.com/)
+👉 **[Guia de Contribuição (CONTRIBUTING.md)](./CONTRIBUTING.md)**
 
 ---
 
-## 🔌 Passo 6: Instalar a Extensão do Flutter no VS Code
+## 👥 Equipe Fundadora
 
-A extensão integra o Flutter ao VS Code, permitindo rodar, depurar e ter autocompletar de código.
+Este projeto foi idealizado e construído com extrema dedicação pela sua equipe fundadora:
 
-**O que fazer:**  
-1. Abra o VS Code.  
-2. Vá até a aba de Extensões (ícone de blocos no menu lateral).  
-3. Pesquise por **Flutter** e instale a extensão oficial (publicada por *Dart Code*).  
-4. A extensão do Dart será instalada automaticamente.
-
----
-
-## 🩺 Passo 7: Verificar a Instalação com `flutter doctor`
-
-O Flutter possui uma ferramenta que verifica se o ambiente está corretamente configurado.
-
-**O que fazer:**  
-Abra o terminal e rode o comando:
-
-```bash
-flutter doctor -v
-```
-
-Se houver algum problema ([✗] ou [!]), o comando geralmente sugere como corrigir (exemplo: `flutter doctor --android-licenses`).
-
----
-
-## 📂 Passo 8: Obter o Código do Projeto
-
-Com o ambiente pronto, é hora de baixar o código-fonte do projeto.
-
-**O que fazer:**  
-1. Faça um **Fork** do repositório no GitHub.  
-2. Clone o seu fork localmente:
-
-```bash
-git git@github.com:gabriel26077/ProjetoARCA.git
-cd ProjetoARCA/micro_arca_app
-```
-
----
-
-## 🧠 Passo 9: Fluxo de Trabalho com Git Flow
-
-Para manter a organização e integridade do projeto, seguimos um fluxo de desenvolvimento baseado em **Git Flow**.
-
-**Regras básicas:**
-
-- **Nunca faça push direto** nas branches `main` ou `dev`.  
-- Sempre crie uma **branch de feature** a partir da `dev`.
-
-### Criando uma branch de feature
-
-```bash
-git checkout dev
-git pull
-git checkout -b feature/nome-da-feature
-```
-
-### Após finalizar sua feature
-
-1. Faça o commit e push da sua branch:
-
-```bash
-git add .
-git commit -m "Descrição da feature"
-git push origin feature/nome-da-feature
-```
-
-2. Crie um **Merge Request (MR)** ou **Pull Request (PR)** para a branch `dev`.  
-3. Seu MR será analisado por outros desenvolvedores.  
-4. Se estiver tudo certo ✅, será integrado e a *issue* será encerrada.  
-5. Caso haja ajustes necessários ❌, a *issue* retornará com instruções de correção.
-
----
-
-## ▶️ Passo 10: Rodar o Projeto
-
-**O que fazer:**  
-1. Baixe as dependências:
-
-```bash
-flutter pub get
-```
-
-2. Conecte um dispositivo físico ou inicie um emulador.  
-3. Rode o aplicativo:
-
-```bash
-flutter run
-```
-
----
-
-🎉 **Pronto!** Seu ambiente está configurado e você pode começar a contribuir com o projeto!  
-Lembre-se: código limpo, commits descritivos e respeito ao fluxo Git são fundamentais para o sucesso coletivo.
+* 🎓 **Gabriel Sebastião do Nascimento Neto**
+* 🎓 **Maria Helena Fernandes Leocádio**
+* 🎓 **Rodrigo de Menezes Souza**
+* 🎓 **Francisco Micarlos Teixeira Pinto**
+* 🎓 **Moisés Frederico dos Santos Varela**
+* 🎓 **Judyson Andrade Justino**
+* 🎓 **Daniel Moura do Nascimento**
