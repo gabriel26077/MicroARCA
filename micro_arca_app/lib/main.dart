@@ -3,17 +3,13 @@ import 'package:flutter/services.dart';
 import 'package:micro_arca_app/screens/main_screen.dart';
 
 // Definindo a cor principal (necessário para a AppBar e tema)
-const Color primaryColor = Color(0xFF00BCD4); 
+const Color primaryColor = Color(0xFF00BCD4);
 
 // A função precisa ser async, pois fizemos configurações de SO que não são instantâneas
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-  ]);
-
-  SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
 
   runApp(const MainApp());
 }
@@ -33,7 +29,7 @@ class MainApp extends StatelessWidget {
         platform: TargetPlatform.android,
         // Configura a cor principal para ser acessível em todo o app (como a AppBar)
         primaryColor: primaryColor,
-        appBarTheme: const AppBarTheme(backgroundColor: primaryColor), 
+        appBarTheme: const AppBarTheme(backgroundColor: primaryColor),
       ),
       home: const MainScreen(),
       // Configuração global para scroll suave (opcional)
@@ -46,7 +42,7 @@ class MainApp extends StatelessWidget {
           onTap: () {
             // Fecha o teclado quando tocar fora de campos de texto
             FocusScopeNode currentFocus = FocusScope.of(context);
-            if (!currentFocus.hasPrimaryFocus && 
+            if (!currentFocus.hasPrimaryFocus &&
                 currentFocus.focusedChild != null) {
               currentFocus.focusedChild?.unfocus();
             }

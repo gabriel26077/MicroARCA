@@ -37,18 +37,18 @@ class _MainScreenState extends State<MainScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: const MyAppBar(),
-      body: Column(
-        children: [
-          // Our new top navigation component
-          TopNavBar(selectedIndex: _selectedPage, onTap: _onTabTapped),
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Our new top navigation component
+            TopNavBar(selectedIndex: _selectedPage, onTap: _onTabTapped),
 
-          Expanded(
-            child: IndexedStack(index: _selectedPage, children: _pages),
-          ),
-        ],
+            Expanded(
+              child: IndexedStack(index: _selectedPage, children: _pages),
+            ),
+          ],
+        ),
       ),
-
-
     );
   }
 }

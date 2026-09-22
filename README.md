@@ -15,7 +15,14 @@ A proposta do **ProjetoARCA** é quebrar essa barreira financeira através de um
 O ecossistema é composto por duas frentes integradas que se comunicam de forma simples:
 
 1. **📱 Aplicativo Móvel (`micro_arca_app/`):** Um ambiente de programação visual e amigável rodando diretamente no smartphone do aluno, permitindo programar e enviar comandos de forma descomplicada.
-2. **🔌 Sistema Embarcado (`embedded/`):** Códigos em **MicroPython** carregados no microcontrolador (ESP32) que servem como presets e interpretadores para entender e executar a comunicação enviada pelo aplicativo. 
+2. **🔌 Sistema Embarcado (`embedded/`):** Códigos em **MicroPython** carregados no ESP32 clássico, com acesso ao interpretador por **Bluetooth BLE**. O app Android descobre o kit, envia o programa e recebe a saída do console sem configurar Wi-Fi ou IP.
+
+### Conexão Bluetooth (Android)
+
+A migração BLE está na fase de validação em bancada. O envio usa arquivo temporário
+e verificação SHA-256; execução e parada são confirmadas pelo interpretador.
+Veja o **[guia de instalação, uso e testes](embedded/README.md)** para carregar os
+quatro arquivos necessários na placa. A placa atende um celular por vez.
 
 Esse dispositivo embarcado é extremamente versátil e pode dar vida a:
 - Um pequeno robô móvel.
@@ -25,7 +32,8 @@ Esse dispositivo embarcado é extremamente versátil e pode dar vida a:
 ### 📸 Demonstração e Galeria
 
 #### 📱 Aplicativo (Interface do Usuário)
-Abaixo estão as telas principais do aplicativo, onde os alunos podem escrever e enviar seus códigos, monitorar o console de execução em tempo real e realizar a configuração inteligente da rede local:
+As imagens abaixo registram a interface anterior à migração BLE. A conexão atual
+é feita pela aba **Kits**, com descoberta Bluetooth:
 
 <p align="center">
   <img src="./pictures/ediotor-page.png" width="31%" alt="Editor de Código" />
@@ -48,7 +56,7 @@ Veja abaixo o primeiro protótipo funcional do robô físico montado com compone
 O repositório está organizado de forma modular:
 
 * 📱 **[micro_arca_app/](./micro_arca_app/)**: Contém o aplicativo mobile desenvolvido em Flutter.
-* 🔌 **[embedded/](./embedded/)**: Guarda os scripts em MicroPython (incluindo gerenciamento de resets rápidos e Wi-Fi inteligentes) que rodam no ESP32.
+* 🔌 **[embedded/](./embedded/)**: Guarda o transporte BLE do REPL, o upload verificado e os scripts de inicialização do ESP32.
 
 ---
 

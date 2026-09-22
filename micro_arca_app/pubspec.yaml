@@ -1,5 +1,5 @@
 name: micro_arca_app
-description: "A new Flutter project."
+description: "Editor MicroPython para kits ARCA por Bluetooth BLE no Android."
 publish_to: 'none'
 version: 0.1.0
 
@@ -11,9 +11,10 @@ dependencies:
     sdk: flutter
   code_text_field: ^1.1.0 
   highlight: ^0.7.0
-  # ADICIONE ESTA LINHA TAMBÉM:
   flutter_highlight: ^0.7.0
-  web_socket_channel: ^3.0.0
+  flutter_reactive_ble: ^5.5.0
+  crypto: ^3.0.6
+  shared_preferences: ^2.5.5
 
 dev_dependencies:
   flutter_test:

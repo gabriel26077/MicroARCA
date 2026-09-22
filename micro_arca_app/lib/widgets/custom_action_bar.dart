@@ -2,10 +2,10 @@
 import 'package:flutter/material.dart';
 
 // Constante para a cor primária (cian/turquesa)
-const Color primaryColor = Color(0xFF00BCD4); 
+const Color primaryColor = Color(0xFF00BCD4);
 
 // Constante para a cor amarela dos círculos
-const Color accentColor = Color.fromARGB(255, 238, 255, 0); 
+const Color accentColor = Color.fromARGB(255, 238, 255, 0);
 
 // === 1. WIDGET DE BOTÃO INDIVIDUAL (ActionButton) ===
 class ActionButton extends StatelessWidget {
@@ -15,12 +15,12 @@ class ActionButton extends StatelessWidget {
   final bool isLoading;
 
   const ActionButton({
-    Key? key,
+    super.key,
     required this.icon,
     required this.label,
     required this.onTap,
     this.isLoading = false,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -41,11 +41,7 @@ class ActionButton extends StatelessWidget {
                       valueColor: AlwaysStoppedAnimation<Color>(Colors.black87),
                     ),
                   )
-                : Icon(
-                    icon,
-                    color: Colors.black87,
-                    size: 20,
-                  ),
+                : Icon(icon, color: Colors.black87, size: 20),
           ),
           const SizedBox(height: 4),
           Text(
@@ -73,7 +69,7 @@ class CustomActionBar extends StatelessWidget {
   final bool isStopLoading; // Novo parâmetro para loading do Stop
 
   const CustomActionBar({
-    Key? key,
+    super.key,
     required this.onLoad,
     required this.onSave,
     required this.onSend,
@@ -82,13 +78,12 @@ class CustomActionBar extends StatelessWidget {
     this.isSendLoading = false,
     this.isRunLoading = false,
     this.isStopLoading = false, // Novo parâmetro com valor padrão
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.only(
-          top: 10, bottom: 10, left: 20, right: 20), 
+      padding: const EdgeInsets.only(top: 10, bottom: 10, left: 20, right: 20),
       decoration: const BoxDecoration(
         color: primaryColor,
         borderRadius: BorderRadius.only(
@@ -132,7 +127,6 @@ class CustomActionBar extends StatelessWidget {
             onTap: onRun,
             isLoading: isRunLoading,
           ),
-
         ],
       ),
     );

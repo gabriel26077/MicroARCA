@@ -17,9 +17,12 @@ class TopNavBar extends StatelessWidget {
       margin: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 20.0),
       padding: const EdgeInsets.all(4.0),
       decoration: BoxDecoration(
-        color:  const Color.fromARGB(248, 219, 250, 255),
+        color: const Color.fromARGB(248, 219, 250, 255),
         borderRadius: BorderRadius.circular(50.0),
-        border: Border.all(color: const Color.fromARGB(248, 183, 245, 255), width: 1),
+        border: Border.all(
+          color: const Color.fromARGB(248, 183, 245, 255),
+          width: 1,
+        ),
         boxShadow: const [
           BoxShadow(
             color: Color.fromRGBO(158, 158, 158, 0.1),
@@ -45,8 +48,8 @@ class TopNavBar extends StatelessWidget {
             onTap: () => onTap(1),
           ),
           _NavTab(
-            text: 'Configs',
-            icon: Icons.settings,
+            text: 'Kits',
+            icon: Icons.bluetooth,
             isSelected: selectedIndex == 2,
             onTap: () => onTap(2),
           ),
@@ -96,11 +99,14 @@ class _NavTab extends StatelessWidget {
                 size: 20,
               ),
               const SizedBox(width: 8),
-              Text(
-                text,
-                style: TextStyle(
-                  color: isSelected ? Colors.white : inactiveColor,
-                  fontWeight: FontWeight.bold,
+              Flexible(
+                child: Text(
+                  text,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: isSelected ? Colors.white : inactiveColor,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
             ],

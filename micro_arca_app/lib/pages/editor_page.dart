@@ -1,571 +1,431 @@
-// lib/pages/editor_page.dart
 import 'package:flutter/material.dart';
 import 'package:code_text_field/code_text_field.dart';
-import 'package:highlight/languages/python.dart';
 import 'package:flutter_highlight/themes/a11y-light.dart';
-import 'dart:async';
-import '../widgets/custom_action_bar.dart';
+import 'package:highlight/languages/python.dart';
+
 import '../services/micropython_repl_service.dart';
+import '../services/program_storage.dart';
+import '../widgets/python_indent_modifier.dart';
 
 class EditorPage extends StatefulWidget {
-  const EditorPage({super.key});
+  const EditorPage({super.key, this.storage});
+
+  final ProgramStorage? storage;
 
   @override
   State<EditorPage> createState() => _EditorPageState();
 }
 
-class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
-  CodeController? _codeController;
-  bool _keyboardVisible = false;
-  
-  final MicroPythonREPLService _replService = MicroPythonREPLService();
-
-  // Estados para controle de UI
-  bool _isSendingCode = false;
-  bool _isRunningCode = false;
-  String _statusMessage = 'Pronto';
-  bool _isConnected = false;
-  bool _isStoppingCode = false; // ✅ NOVO: Estado para o botão Stop
-
-  final String _initialCode = """from machine import Pin
-import time
-
-blink_delay = 0.5
-
-
-led = Pin(33, Pin.OUT)
-
-while(True):
-    print("led")
-    led.on()
-    time.sleep(blink_delay)
-    led.off()
-    time.sleep(blink_delay)
-    
-""";
+class _EditorPageState extends State<EditorPage> {
+  final _service = MicroPythonREPLService();
+  late final CodeController _code;
+  late final ProgramStorage _storage;
+  String? _uploadedCode;
+  int? _uploadedSession;
+  String? _programName;
+  String? _savedCode;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    _codeController = CodeController(
-      text: _initialCode,
+    _storage = widget.storage ?? LocalProgramStorage();
+    _code = CodeController(
       language: python,
+      params: const EditorParams(tabSpaces: 4),
+      modifiers: const [PythonIndentModifier(), TabModifier()],
+      text: '''from machine import Pin
+import time
+
+led = Pin(33, Pin.OUT)
+while True:
+    print("LED ligado")
+    led.on()
+    time.sleep(0.5)
+    led.off()
+    time.sleep(0.5)
+''',
     );
-    
-    _setupServiceListeners();
+    _code.addListener(_changed);
   }
 
-  void _setupServiceListeners() {
-    _replService.onStatusUpdate.listen((status) {
-      if (mounted) {
-        setState(() {
-          _statusMessage = status;
-          
-          // ✅ DETECTAR AUTENTICAÇÃO BEM-SUCEDIDA
-          if (status.contains('>>>') || 
-              status.contains('autenticado') || 
-              status.contains('Pronto para comandos')) {
-            _statusMessage = '✅ Conectado e autenticado!';
-          }
-          
-          // ✅ DETECTAR ERRO DE AUTENTICAÇÃO
-          if (status.contains('incorrect') || status.contains('incorreta')) {
-            _statusMessage = '❌ Senha incorreta!';
-          }
-        });
-      }
-    });
-    
-    _replService.onConnectionChanged.listen((connected) {
-      if (mounted) {
-        setState(() => _isConnected = connected);
-        
-        // ✅ ATUALIZAR STATUS QUANDO CONECTAR/DESCONECTAR
-        if (connected) {
-          _statusMessage = 'Conectando...';
-        } else {
-          _statusMessage = '🔌 Desconectado';
-        }
-      }
-    });
-    
-    // ✅ OUVIR MENSAGENS DO REPL TAMBÉM
-    _replService.onMessage.listen((message) {
-      if (mounted) {
-        // Detectar prompt do MicroPython (autenticação bem-sucedida)
-        if (message.contains('>>>')) {
-          setState(() {
-            _statusMessage = '✅ Conectado e autenticado!';
-          });
-        }
-        
-        // Detectar erro de autenticação
-        if (message.contains('Login incorrect')) {
-          setState(() {
-            _statusMessage = '❌ Senha incorreta!';
-          });
-        }
-      }
-    });
+  void _changed() => setState(() {});
+
+  String _normalizedProgramName(String value) {
+    final trimmed = value.trim();
+    return trimmed.toLowerCase().endsWith('.py') ? trimmed : '$trimmed.py';
   }
 
-  // Enviar código como arquivo user.py
-  Future<void> _sendCodeToDevice() async {
-    if (!_replService.isConnected) {
-      //_showSnackBar('Não conectado ao dispositivo');
-      return;
-    }
-
-    final code = _codeController?.text ?? '';
-    if (code.trim().isEmpty) {
-      //_showSnackBar('Nenhum código para enviar');
-      return;
-    }
-
-    setState(() {
-      _isSendingCode = true;
-      _statusMessage = 'Enviando arquivo user.py...';
-    });
-
-    try {
-      final success = await _replService.uploadFile('user.py', code);
-      
-      if (success) {
-        //_showSnackBar('Arquivo user.py enviado com sucesso!');
-        setState(() => _statusMessage = '✅ Arquivo user.py enviado!');
-      } else {
-        //_showSnackBar('Erro ao enviar arquivo');
-        setState(() => _statusMessage = '❌ Erro no envio do arquivo');
-      }
-    } catch (e) {
-      //_showSnackBar('Erro ao enviar código: $e');
-      setState(() => _statusMessage = '❌ Erro no envio');
-    } finally {
-      setState(() => _isSendingCode = false);
-    }
-  }
-void _handleRun() {
-  if (_replService.isConnected) {
-    setState(() {
-      _isRunningCode = true;
-      _statusMessage = '🛑 Interrompendo loop atual...';
-    });
-
-    // ✅ PRIMEIRO: Enviar Ctrl+C para parar qualquer loop em execução
-    _replService.sendCommand(String.fromCharCode(0x03)); // Ctrl+C
-    
-    // ✅ SEGUNDO: Aguardar um pouco e executar o código
-    Timer(const Duration(milliseconds: 800), () {
-      setState(() {
-        _statusMessage = '⚡ Executando código...';
-      });
-      
-      _replService.sendCommand('execute_main()');
-      
-      Timer(const Duration(seconds: 2), () {
-        if (mounted) {
-          setState(() {
-            _isRunningCode = false;
-            _statusMessage = '✅ Execução concluída';
-          });
-        }
-      });
-    });
-    
-  } else {
-    setState(() {
-      _statusMessage = '❌ Dispositivo não conectado';
-    });
-  }
-}
-  // void _showSnackBar(String message) {
-  //   ScaffoldMessenger.of(context).showSnackBar(
-  //     SnackBar(
-  //       content: Text(message),
-  //       duration: const Duration(seconds: 2),
-  //       behavior: SnackBarBehavior.floating,
-  //     ),
-  //   );
-  // }
-
-
-
-  // ✅ NOVO MÉTODO: HANDLE STOP (Ctrl+C)
-  void _handleStop() {
-    if (_replService.isConnected) {
-      setState(() {
-        _isStoppingCode = true;
-        _statusMessage = '🛑 Parando execução...';
-      });
-
-      // Enviar Ctrl+C para interromper a execução
-      _replService.sendCommand(String.fromCharCode(0x03)); // Ctrl+C
-      
-      // Feedback visual
-      Timer(const Duration(milliseconds: 500), () {
-        if (mounted) {
-          setState(() {
-            _isStoppingCode = false;
-            _isRunningCode = false;
-            _statusMessage = '⏹️ Execução interrompida';
-          });
-        }
-      });
-      
-      // Resetar status após alguns segundos
-      Timer(const Duration(seconds: 3), () {
-        if (mounted && _statusMessage.contains('interrompida')) {
-          setState(() {
-            _statusMessage = '✅ Pronto para novos comandos';
-          });
-        }
-      });
-      
-    } else {
-      setState(() {
-        _statusMessage = '❌ Dispositivo não conectado';
-      });
-    }
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
-
-
-  void _handleLoad() {
-    //_showSnackBar('Load - Em desenvolvimento');
+  Future<String?> _askProgramName() async {
+    final result = await showDialog<String>(
+      context: context,
+      builder: (_) => _ProgramNameDialog(initialName: _programName ?? ''),
+    );
+    return result == null ? null : _normalizedProgramName(result);
   }
 
-  void _handleSave() {
-    //_showSnackBar('Save - Em desenvolvimento');
-  }
-
-  void _handleSend() {
-    _sendCodeToDevice();
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _codeController?.dispose();
-    super.dispose();
-  }
-
-  @override
-  void didChangeMetrics() {
-    final bottomInset = WidgetsBinding.instance.window.viewInsets.bottom;
-    final newValue = bottomInset > 0;
-    if (newValue != _keyboardVisible) {
-      setState(() => _keyboardVisible = newValue);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      resizeToAvoidBottomInset: true,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            children: [
-              // Barra de status
-              _buildStatusBar(),
-              const SizedBox(height: 16),
-              
-              // Editor de código
-              Expanded(
-                child: CodeTheme(
-                  data: const CodeThemeData(styles: a11yLightTheme),
-                  child: MicroArcaEditor(controller: _codeController),
-                ),
+  Future<bool> _confirmOverwrite(String name) async {
+    return await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Substituir programa?'),
+            content: Text('Já existe um programa chamado $name.'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Substituir'),
               ),
             ],
           ),
+        ) ??
+        false;
+  }
+
+  Future<void> _saveProgram() async {
+    final name = await _askProgramName();
+    if (name == null || !mounted) return;
+
+    try {
+      final programs = await _storage.loadPrograms();
+      final exists = programs.any(
+        (program) => program.name.toLowerCase() == name.toLowerCase(),
+      );
+      final isCurrent = _programName?.toLowerCase() == name.toLowerCase();
+      if (exists && !isCurrent && !await _confirmOverwrite(name)) return;
+
+      final code = _code.text;
+      await _storage.saveProgram(
+        SavedProgram(name: name, code: code, updatedAt: DateTime.now()),
+      );
+      if (!mounted) return;
+      setState(() {
+        _programName = name;
+        _savedCode = code;
+      });
+      _showMessage('$name salvo no celular.');
+    } catch (_) {
+      _showMessage('Não foi possível salvar o programa.');
+    }
+  }
+
+  Future<bool> _confirmDelete(String name) async {
+    return await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Excluir programa?'),
+            content: Text('$name será removido do celular.'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Excluir'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
+  Future<SavedProgram?> _chooseProgram(List<SavedProgram> initialPrograms) {
+    var programs = initialPrograms;
+    return showDialog<SavedProgram>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Programas salvos'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: programs.isEmpty
+                ? const Text('Nenhum programa salvo.')
+                : ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: programs.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final program = programs[index];
+                      final lineCount =
+                          '\n'.allMatches(program.code).length + 1;
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.description_outlined),
+                        title: Text(
+                          program.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        subtitle: Text('$lineCount linhas'),
+                        onTap: () => Navigator.pop(dialogContext, program),
+                        trailing: IconButton(
+                          tooltip: 'Excluir ${program.name}',
+                          icon: const Icon(Icons.delete_outline),
+                          onPressed: () async {
+                            if (!await _confirmDelete(program.name)) return;
+                            try {
+                              await _storage.deleteProgram(program.name);
+                              if (!mounted) return;
+                              if (_programName?.toLowerCase() ==
+                                  program.name.toLowerCase()) {
+                                setState(() {
+                                  _programName = null;
+                                  _savedCode = null;
+                                });
+                              }
+                              programs = await _storage.loadPrograms();
+                              if (!dialogContext.mounted) return;
+                              setDialogState(() {});
+                            } catch (_) {
+                              _showMessage(
+                                'Não foi possível excluir o programa.',
+                              );
+                            }
+                          },
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Fechar'),
+            ),
+          ],
         ),
       ),
-
-      bottomNavigationBar: _keyboardVisible
-          ? const SizedBox.shrink()
-          : CustomActionBar(
-              onLoad: _handleLoad,
-              onSave: _handleSave,
-              onSend: _handleSend,
-              onRun: _handleRun,
-              onStop: _handleStop, // ✅ NOVO: Adicionar o callback do Stop
-              isSendLoading: _isSendingCode,
-              isRunLoading: _isRunningCode,
-              isStopLoading: _isStoppingCode, // ✅ NOVO: Estado de loading do Stop
-              
-            ),
     );
   }
 
-  Widget _buildStatusBar() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(
-        color: _getStatusColor(),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: _getStatusBorderColor(),
-          width: 1,
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            _getStatusIcon(),
-            color: _getStatusIconColor(),
-            size: 16,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              _getDisplayStatus(),
-              style: TextStyle(
-                color: _getStatusTextColor(),
-                fontWeight: FontWeight.w500,
-                fontSize: 12,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          if (_isSendingCode || _isRunningCode)
-            const SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  // ✅ MÉTODO NOVO PARA STATUS MAIS DESCRITIVO
-  String _getDisplayStatus() {
-    if (!_replService.isConnected) return '🔌 Desconectado';
-    if (_statusMessage.contains('✅')) return _statusMessage;
-    if (_statusMessage.contains('autenticado')) return '✅ Conectado e autenticado!';
-    if (_statusMessage.contains('>>>')) return '✅ Conectado e autenticado!';
-    if (_statusMessage.contains('incorreta')) return '❌ Senha incorreta!';
-    if (_statusMessage.contains('incorrect')) return '❌ Senha incorreta!';
-    if (_isSendingCode) return '📤 Enviando arquivo...';
-    if (_isRunningCode) return '⚡ Executando código...';
-    if (_isStoppingCode) return '🛑 Parando execução...'; // ✅ NOVO
-    return _statusMessage;
-  }
-
-  Color _getStatusColor() {
-    if (!_replService.isConnected) return const Color(0xFFFFEBEE);
-    if (_statusMessage.contains('✅')) return const Color(0xFFE8F5E8);
-    if (_statusMessage.contains('❌')) return const Color(0xFFFFEBEE);
-    if (_isSendingCode) return const Color(0xFFFFF8E1);
-    if (_isRunningCode) return const Color(0xFFFFF8E1);
-    if (_isStoppingCode) return const Color(0xFFFFF8E1); // ✅ NOVO
-    return const Color(0xFFE3F2FD);
-  }
-
-  Color _getStatusBorderColor() {
-    if (!_replService.isConnected) return const Color(0xFFF44336);
-    if (_statusMessage.contains('✅')) return const Color(0xFF4CAF50);
-    if (_statusMessage.contains('❌')) return const Color(0xFFF44336);
-    if (_isSendingCode) return const Color(0xFFFFC107);
-    if (_isRunningCode) return const Color(0xFFFFC107);
-    if (_isStoppingCode) return const Color(0xFFFFC107); // ✅ NOVO
-    return const Color(0xFF2196F3);
-  }
-
-  Color _getStatusTextColor() {
-    if (!_replService.isConnected) return const Color(0xFFC62828);
-    if (_statusMessage.contains('✅')) return const Color(0xFF2E7D32);
-    if (_statusMessage.contains('❌')) return const Color(0xFFC62828);
-    if (_isSendingCode) return const Color(0xFFF57C00);
-    if (_isRunningCode) return const Color(0xFFF57C00);
-     if (_isStoppingCode) return const Color(0xFFF57C00); // ✅ NOVO
-    return const Color(0xFF1565C0);
-  }
-
-  Color _getStatusIconColor() {
-    if (!_replService.isConnected) return const Color(0xFFF44336);
-    if (_statusMessage.contains('✅')) return const Color(0xFF4CAF50);
-    if (_statusMessage.contains('❌')) return const Color(0xFFF44336);
-    if (_isSendingCode) return const Color(0xFFFFC107);
-    if (_isRunningCode) return const Color(0xFFFFC107);
-     if (_isStoppingCode) return const Color(0xFFFFC107); // ✅ NOVO
-    return const Color(0xFF2196F3);
-  }
-
-  IconData _getStatusIcon() {
-    if (!_replService.isConnected) return Icons.error_outline;
-    if (_statusMessage.contains('✅')) return Icons.check_circle;
-    if (_statusMessage.contains('❌')) return Icons.error_outline;
-    if (_isSendingCode) return Icons.upload;
-    if (_isRunningCode) return Icons.play_arrow;
-    if (_isStoppingCode) return Icons.stop; // ✅ NOVO
-    return Icons.info_outline;
-  }
-}
-
-class MicroArcaEditor extends StatefulWidget {
-  const MicroArcaEditor({
-    super.key,
-    required this.controller,
-  });
-
-  final CodeController? controller;
-
-  @override
-  State<MicroArcaEditor> createState() => _MicroArcaEditorState();
-}
-
-class _MicroArcaEditorState extends State<MicroArcaEditor> {
-  final FocusNode _focusNode = FocusNode();
-  String _lastText = "";
-
-  @override
-  void initState() {
-    super.initState();
-    _lastText = widget.controller?.text ?? "";
-    widget.controller?.addListener(_scrollToCursor);
-  }
-
-  void _scrollToCursor() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      setState(() {});
-    });
-  }
-
-  void _handleAutoIndent(String newText) {
-    final controller = widget.controller;
-    if (controller == null) return;
-
-    if (newText.length > _lastText.length && newText.contains('\n')) {
-      final newLineIndex = _findNewLineIndex(_lastText, newText);
-      if (newLineIndex != -1) {
-        _applyIndentation(controller, newText, newLineIndex);
+  Future<void> _openProgram() async {
+    try {
+      final programs = await _storage.loadPrograms();
+      if (!mounted) return;
+      if (programs.isEmpty) {
+        _showMessage('Nenhum programa salvo no celular.');
+        return;
       }
-    }
-
-    _lastText = newText;
-  }
-
-  int _findNewLineIndex(String oldText, String newText) {
-    for (int i = 0; i < newText.length; i++) {
-      if (i >= oldText.length || oldText[i] != newText[i]) {
-        if (newText[i] == '\n') {
-          return i;
-        }
-        break;
-      }
-    }
-    return -1;
-  }
-
-  void _applyIndentation(CodeController controller, String text, int newLineIndex) {
-    int lineStart = newLineIndex - 1;
-    while (lineStart >= 0 && text[lineStart] != '\n') {
-      lineStart--;
-    }
-    lineStart++;
-
-    final String previousLine = text.substring(lineStart, newLineIndex);
-    final String trimmedLine = previousLine.trim();
-
-    final int currentIndent = _getIndentation(previousLine);
-    final bool shouldIndent = _shouldIndentNextLine(trimmedLine);
-
-    final int newIndent = currentIndent + (shouldIndent ? 4 : 0);
-    final String indentSpaces = ' ' * newIndent;
-
-    if (newIndent > 0) {
-      final updatedText = text.replaceRange(
-        newLineIndex + 1,
-        newLineIndex + 1,
-        indentSpaces,
+      final selected = await _chooseProgram(programs);
+      if (selected == null || !mounted) return;
+      _code.value = TextEditingValue(
+        text: selected.code,
+        selection: TextSelection.collapsed(offset: selected.code.length),
       );
-      controller.value = controller.value.copyWith(
-        text: updatedText,
-        selection: TextSelection.collapsed(
-          offset: newLineIndex + 1 + indentSpaces.length,
-        ),
-      );
+      setState(() {
+        _programName = selected.name;
+        _savedCode = selected.code;
+      });
+      _showMessage('${selected.name} carregado.');
+    } catch (_) {
+      _showMessage('Não foi possível carregar os programas.');
     }
   }
 
-  bool _shouldIndentNextLine(String line) {
-    final lineWithoutComments = line.split('#').first.trim();
-    if (lineWithoutComments.isEmpty) return false;
-    if (lineWithoutComments.endsWith(':')) return true;
-
-    final indentKeywords = [
-      'def', 'class', 'if', 'elif', 'else', 'while', 'for',
-      'try', 'except', 'finally', 'with', 'async def', 'async for', 'async with'
-    ];
-
-    for (final keyword in indentKeywords) {
-      if (lineWithoutComments.startsWith('$keyword ') ||
-          lineWithoutComments == keyword) {
-        return true;
-      }
+  Future<void> _send() async {
+    final content = _code.text;
+    final session = _service.sessionId;
+    final success = await _service.uploadFile(content);
+    if (mounted && success) {
+      setState(() {
+        _uploadedCode = content;
+        _uploadedSession = session;
+      });
     }
-
-    return false;
-  }
-
-  int _getIndentation(String line) {
-    int indent = 0;
-    for (int i = 0; i < line.length; i++) {
-      if (line[i] == ' ') {
-        indent++;
-      } else if (line[i] == '\t') {
-        indent += 4;
-      } else {
-        break;
-      }
-    }
-    return indent;
   }
 
   @override
   void dispose() {
-    widget.controller?.removeListener(_scrollToCursor);
-    _focusNode.dispose();
+    _code.removeListener(_changed);
+    _code.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12.0),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
+    return ListenableBuilder(
+      listenable: _service,
+      builder: (context, _) {
+        final uploaded = _uploadedCode == _code.text &&
+            _uploadedSession == _service.sessionId;
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                _service.status,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              if (_service.state == KitState.uploading)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: LinearProgressIndicator(value: _service.progress),
+                ),
+              Row(
+                children: [
+                  const Icon(Icons.description_outlined, size: 20),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '${_programName ?? 'Novo programa'}'
+                      '${_savedCode == _code.text ? '' : ' • não salvo'}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Abrir programa salvo',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: _openProgram,
+                    icon: const Icon(Icons.folder_open_outlined),
+                  ),
+                  IconButton(
+                    tooltip: 'Salvar programa no celular',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: _code.text.trim().isEmpty ? null : _saveProgram,
+                    icon: const Icon(Icons.save_outlined),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Expanded(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: SingleChildScrollView(
+                      child: CodeTheme(
+                        data: const CodeThemeData(styles: a11yLightTheme),
+                        child: CodeField(
+                          controller: _code,
+                          textStyle: const TextStyle(
+                            fontFamily: 'FiraCode',
+                            fontSize: 14,
+                          ),
+                          wrap: true,
+                          minLines: 12,
+                          maxLines: null,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                uploaded
+                    ? 'Este código foi enviado ao kit.'
+                    : 'Envie o código antes de executar.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 4),
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                alignment: WrapAlignment.center,
+                children: [
+                  FilledButton.tonalIcon(
+                    onPressed: _service.isReady && _code.text.trim().isNotEmpty
+                        ? _send
+                        : null,
+                    icon: const Icon(Icons.upload),
+                    label: const Text('Enviar'),
+                  ),
+                  FilledButton.icon(
+                    onPressed:
+                        _service.isReady && uploaded ? _service.runFile : null,
+                    icon: const Icon(Icons.play_arrow),
+                    label: const Text('Executar'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _service.state == KitState.running
+                        ? _service.stop
+                        : null,
+                    icon: const Icon(Icons.stop),
+                    label: const Text('Parar'),
+                  ),
+                ],
+              ),
+            ],
           ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12.0),
-        child: CodeField(
-          controller: widget.controller!,
-          focusNode: _focusNode,
-          lineNumbers: true,
-          textStyle: const TextStyle(
-            fontFamily: 'FiraCode',
-            fontSize: 14,
-          ),
-          wrap: true,
-          minLines: null,
-          maxLines: null,
-          onChanged: _handleAutoIndent,
+        );
+      },
+    );
+  }
+}
+
+class _ProgramNameDialog extends StatefulWidget {
+  const _ProgramNameDialog({required this.initialName});
+
+  final String initialName;
+
+  @override
+  State<_ProgramNameDialog> createState() => _ProgramNameDialogState();
+}
+
+class _ProgramNameDialogState extends State<_ProgramNameDialog> {
+  late final TextEditingController _controller;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialName);
+  }
+
+  void _submit() {
+    if (_controller.text.trim().isEmpty) {
+      setState(() => _error = 'Informe um nome.');
+      return;
+    }
+    Navigator.pop(context, _controller.text);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Salvar programa'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        maxLength: 60,
+        decoration: InputDecoration(
+          labelText: 'Nome do programa',
+          hintText: 'exemplo.py',
+          errorText: _error,
         ),
+        onSubmitted: (_) => _submit(),
       ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(onPressed: _submit, child: const Text('Salvar')),
+      ],
     );
   }
 }
