@@ -34,6 +34,7 @@ class LibraryFileTests(unittest.TestCase):
 
     def tearDown(self):
         self.files.abort()
+        self.files.workspace_abort()
         self.rename.stop()
         self.statvfs.stop()
         self.sync.stop()
@@ -169,6 +170,78 @@ class LibraryFileTests(unittest.TestCase):
         with self.assertRaises(OSError):
             self.files.delete_many(['a.py', 'missing.py'])
         self.assertEqual(Path('lib/a.py').read_bytes(), b'a')
+
+    def workspace_upload(self, name, content):
+        digest = hashlib.sha256(content).hexdigest()
+        self.files.workspace_begin(name, len(content), digest)
+        for offset in range(0, len(content), 3):
+            self.files.workspace_append(content[offset:offset + 3].hex())
+        self.files.workspace_finish()
+
+    def test_workspace_creates_editable_main_and_lists_user_files(self):
+        self.assertEqual(
+            self.files.workspace_list(),
+            [{'name': 'main.py', 'size': 41}],
+        )
+        self.workspace_upload('sensor.py', b'VALUE = 1\n')
+        self.assertEqual(
+            [item['name'] for item in self.files.workspace_list()],
+            ['main.py', 'sensor.py'],
+        )
+        self.assertEqual(
+            self.files.workspace_read_chunk('sensor.py', 0, 4),
+            b'VALU'.hex(),
+        )
+
+    def test_workspace_migrates_legacy_user_file_to_main(self):
+        Path('user.py').write_bytes(b'print("legado")\n')
+        self.files.workspace_list()
+        self.assertEqual(Path('app/main.py').read_bytes(), b'print("legado")\n')
+        self.assertTrue(Path('user.py').exists())
+
+    def test_workspace_update_is_atomic_and_main_cannot_be_deleted(self):
+        self.workspace_upload('main.py', b'print(1)\n')
+        content = b'print(2)\n'
+        self.files.workspace_begin(
+            'main.py', len(content), hashlib.sha256(content).hexdigest()
+        )
+        self.files.workspace_append(b'bad'.hex())
+        with self.assertRaises(ValueError):
+            self.files.workspace_finish()
+        self.assertEqual(Path('app/main.py').read_bytes(), b'print(1)\n')
+        with self.assertRaises(ValueError):
+            self.files.workspace_delete('main.py')
+
+    def test_workspace_delete_and_name_protection(self):
+        self.workspace_upload('helper.py', b'pass\n')
+        self.files.workspace_delete('helper.py')
+        self.assertFalse(Path('app/helper.py').exists())
+        for name in ('boot.py', 'arca_ble.py', '../main.py', 'dois nomes.py'):
+            with self.subTest(name=name):
+                with self.assertRaises(ValueError):
+                    self.files.workspace_begin(
+                        name, 0, hashlib.sha256(b'').hexdigest()
+                    )
+
+    def test_workspace_renames_user_file_but_protects_main(self):
+        self.workspace_upload('helper.py', b'VALUE = 1\n')
+        self.files.workspace_rename('helper.py', 'sensor.py')
+        self.assertFalse(Path('app/helper.py').exists())
+        self.assertEqual(Path('app/sensor.py').read_bytes(), b'VALUE = 1\n')
+        with self.assertRaises(ValueError):
+            self.files.workspace_rename('main.py', 'inicio.py')
+        self.workspace_upload('outro.py', b'pass\n')
+        with self.assertRaises(ValueError):
+            self.files.workspace_rename('sensor.py', 'outro.py')
+
+    def test_workspace_and_official_library_names_cannot_collide(self):
+        self.upload('display.py', b'OFFICIAL = 1\n')
+        with self.assertRaises(ValueError):
+            self.workspace_upload('display.py', b'USER = 1\n')
+
+        self.workspace_upload('sensor.py', b'USER = 1\n')
+        with self.assertRaises(ValueError):
+            self.upload('sensor.py', b'OFFICIAL = 1\n')
 
 
 if __name__ == '__main__':

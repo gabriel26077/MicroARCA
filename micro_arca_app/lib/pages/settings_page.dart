@@ -76,7 +76,7 @@ class SettingsPage extends StatelessWidget {
                 subtitle: Text(
                   service.isConnected
                       ? 'Catálogo oficial, instalação e remoção no kit'
-                      : 'Consulte o catálogo e organize arquivos .py',
+                      : 'Instale e organize pacotes oficiais',
                 ),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => Navigator.of(context).push(

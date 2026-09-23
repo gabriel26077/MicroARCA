@@ -68,16 +68,26 @@ flutter run
    localização para descobrir BLE e pode exigir que a localização esteja ligada.
 3. Selecione o nome da placa. Não é necessário parear primeiro nas configurações
    do Android. Um kit aceita apenas um celular por vez.
-4. No editor, toque **Enviar**, aguarde a verificação e toque **Executar**.
+4. No editor, use o explorador para criar ou abrir arquivos. **Salvar** envia o
+   arquivo atual para `/app`; **Executar** sincroniza o arquivo aberto e inicia
+   o entrypoint editável `/app/main.py`.
 5. Veja a saída em **Console**. **Parar** também está disponível nessa aba.
-6. Em **Kits → Bibliotecas**, importe arquivos `.py` do celular e instale-os
-   em `/lib`. Essa tela nunca lista ou altera os arquivos da raiz da placa.
-7. A mesma tela consulta o catálogo oficial em
+6. Arquivos criados pelo usuário ficam no explorador do Editor e podem ser
+   abertos, alterados e excluídos. Outros módulos em `/app` podem ser importados
+   normalmente pelo `main.py`.
+7. Em **Kits → Bibliotecas**, consulte o catálogo oficial em
    `https://libs-microarca.traceedu.com.br/v1/catalog.json`. Pacotes e todas as
-   dependências são baixados e verificados antes de o ESP32 ser modificado.
+   dependências ficam em `/lib` e são baixados e verificados antes de o ESP32
+   ser modificado. Eles não aparecem entre os arquivos editáveis do projeto.
 
-Pacotes do catálogo com vários arquivos exigem `arca_files.py` versão 2. Essa
-versão prepara todos os módulos em arquivos ocultos e só os substitui depois que
+O workspace editável exige `arca_files.py` versão 3. Ao ser aberto pela primeira
+vez, `/app/main.py` recebe uma cópia do antigo `user.py`, se ele existir; o
+original é preservado. O `main.py` da raiz continua protegido porque é executado
+automaticamente pelo MicroPython durante o boot. Arquivos de `/app` não podem
+usar o mesmo nome de uma biblioteca oficial em `/lib`.
+
+Pacotes do catálogo com vários arquivos usam a API transacional introduzida na
+versão 2. Ela prepara todos os módulos em arquivos ocultos e só os substitui depois que
 o lote inteiro foi recebido e teve tamanho e SHA-256 conferidos. Uma falha antes
 do commit preserva as versões anteriores. A instalação manual de um único módulo
 continua compatível com a API anterior.

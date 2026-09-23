@@ -1,5 +1,21 @@
 # Retomada da sessão — Projeto ARCA
 
+> **Workspace editável no ESP32 — 23/09/2026:** o Editor passou a tratar códigos
+> do usuário como arquivos de projeto, não como bibliotecas oficiais. O explorador
+> reúne cópias do celular e arquivos seguros de `/app`; permite abrir, editar,
+> salvar, salvar como, renomear e excluir módulos, mantendo `/app/main.py` como entrypoint editável e
+> não removível. **Executar** sincroniza o arquivo atual e inicia esse `main.py`.
+> O `/main.py` real e os módulos ARCA continuam protegidos na raiz. Imports de
+> módulos do projeto usam `/app`, são recarregados a cada execução e não podem
+> colidir com pacotes oficiais de `/lib`. O antigo `user.py` é copiado para o novo
+> entrypoint na primeira inicialização, sem ser apagado, e as antigas bibliotecas
+> locais do celular são migradas para os arquivos do Editor. `arca_files.py` agora
+> usa a API versão 3. A barra do Editor separa as ações do celular e do ESP32,
+> cada lado com abrir, salvar e salvar como, além da ação central de novo arquivo.
+> Passaram 40 testes Flutter, 34 testes Python, a análise Dart
+> completa e `git diff --check`. O APK debug foi compilado, instalado e aberto
+> no Moto g34 5G conectado.
+
 > **Catálogo oficial de bibliotecas — 23/09/2026:** a IDE passou a consumir
 > `https://libs-microarca.traceedu.com.br/v1/catalog.json` com o User-Agent da
 > aplicação, HTTPS sem redirecionamentos, limites de tamanho, ETag e cache do

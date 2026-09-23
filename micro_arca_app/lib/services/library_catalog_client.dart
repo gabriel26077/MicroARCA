@@ -38,6 +38,13 @@ class VerifiedPackage {
 abstract interface class LibraryCatalogRepository {
   Future<CatalogSnapshot> fetchCatalog();
 
+  Future<List<CatalogPackage>> downloadedPackages(LibraryCatalog catalog);
+
+  Future<void> removeDownloadedPackage(
+    LibraryCatalog catalog,
+    CatalogPackage package,
+  );
+
   Future<List<VerifiedPackage>> download(
     List<CatalogPackage> packages, {
     void Function(int received, int total)? onProgress,
@@ -99,6 +106,75 @@ class LibraryCatalogClient implements LibraryCatalogRepository {
   }
 
   @override
+  Future<List<CatalogPackage>> downloadedPackages(
+    LibraryCatalog catalog,
+  ) async {
+    var keys = await _cache.loadDownloadedPackageKeys();
+    if (keys == null) {
+      keys = <String>{};
+      for (final package in catalog.packages) {
+        if (await _packageIsCached(package)) keys.add(package.key);
+      }
+      await _cache.saveDownloadedPackageKeys(keys);
+    }
+
+    final valid = <String>{};
+    final packages = <CatalogPackage>[];
+    for (final key in keys) {
+      final separator = key.lastIndexOf('@');
+      if (separator <= 0) continue;
+      final package = catalog.find(
+        key.substring(0, separator),
+        key.substring(separator + 1),
+      );
+      if (package != null && await _packageIsCached(package)) {
+        valid.add(key);
+        packages.add(package);
+      }
+    }
+    if (valid.length != keys.length) {
+      await _cache.saveDownloadedPackageKeys(valid);
+    }
+    packages.sort((a, b) => a.name.compareTo(b.name));
+    return List.unmodifiable(packages);
+  }
+
+  @override
+  Future<void> removeDownloadedPackage(
+    LibraryCatalog catalog,
+    CatalogPackage package,
+  ) async {
+    final keys = await _cache.loadDownloadedPackageKeys() ?? <String>{};
+    keys.remove(package.key);
+    final retainedHashes = <String>{};
+    for (final key in keys) {
+      final separator = key.lastIndexOf('@');
+      if (separator <= 0) continue;
+      final retained = catalog.find(
+        key.substring(0, separator),
+        key.substring(separator + 1),
+      );
+      if (retained != null) {
+        retainedHashes.addAll(retained.files.map((file) => file.sha256));
+      }
+    }
+    for (final file in package.files) {
+      if (!retainedHashes.contains(file.sha256)) {
+        await _cache.deleteFile(file.sha256);
+      }
+    }
+    await _cache.saveDownloadedPackageKeys(keys);
+  }
+
+  Future<bool> _packageIsCached(CatalogPackage package) async {
+    for (final file in package.files) {
+      final bytes = await _cache.loadFile(file.sha256);
+      if (bytes == null || !_matches(file, bytes)) return false;
+    }
+    return true;
+  }
+
+  @override
   Future<List<VerifiedPackage>> download(
     List<CatalogPackage> packages, {
     void Function(int received, int total)? onProgress,
@@ -139,6 +215,9 @@ class LibraryCatalogClient implements LibraryCatalogRepository {
         VerifiedPackage(package: package, files: List.unmodifiable(files)),
       );
     }
+    final downloaded = await _cache.loadDownloadedPackageKeys() ?? <String>{};
+    downloaded.addAll(packages.map((package) => package.key));
+    await _cache.saveDownloadedPackageKeys(downloaded);
     return List.unmodifiable(result);
   }
 
@@ -291,6 +370,9 @@ abstract interface class CatalogCache {
   Future<void> saveCatalog(CachedCatalog catalog);
   Future<Uint8List?> loadFile(String sha256);
   Future<void> saveFile(String sha256, Uint8List bytes);
+  Future<void> deleteFile(String sha256);
+  Future<Set<String>?> loadDownloadedPackageKeys();
+  Future<void> saveDownloadedPackageKeys(Set<String> keys);
 }
 
 class SharedPreferencesCatalogCache implements CatalogCache {
@@ -300,6 +382,7 @@ class SharedPreferencesCatalogCache implements CatalogCache {
   static const _catalogKey = 'arca.catalog.bytes.v1';
   static const _etagKey = 'arca.catalog.etag.v1';
   static const _filePrefix = 'arca.catalog.file.v1.';
+  static const _downloadedPackagesKey = 'arca.catalog.downloads.v1';
   SharedPreferencesAsync? _preferences;
 
   SharedPreferencesAsync get _prefs =>
@@ -344,6 +427,33 @@ class SharedPreferencesCatalogCache implements CatalogCache {
   @override
   Future<void> saveFile(String sha256, Uint8List bytes) =>
       _prefs.setString('$_filePrefix$sha256', base64Encode(bytes));
+
+  @override
+  Future<void> deleteFile(String sha256) =>
+      _prefs.remove('$_filePrefix$sha256');
+
+  @override
+  Future<Set<String>?> loadDownloadedPackageKeys() async {
+    final encoded = await _prefs.getString(_downloadedPackagesKey);
+    if (encoded == null) return null;
+    try {
+      final decoded = jsonDecode(encoded);
+      if (decoded is! Map ||
+          decoded['schema'] != 1 ||
+          decoded['packages'] is! List) {
+        return null;
+      }
+      return (decoded['packages'] as List).whereType<String>().toSet();
+    } on FormatException {
+      return null;
+    }
+  }
+
+  @override
+  Future<void> saveDownloadedPackageKeys(Set<String> keys) => _prefs.setString(
+        _downloadedPackagesKey,
+        jsonEncode({'schema': 1, 'packages': keys.toList()..sort()}),
+      );
 }
 
 class CatalogNetworkException implements Exception {

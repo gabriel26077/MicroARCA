@@ -1,18 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:code_text_field/code_text_field.dart';
 import 'package:flutter_highlight/themes/a11y-light.dart';
 import 'package:highlight/languages/python.dart';
 
-import '../services/library_storage.dart';
 import '../services/micropython_repl_service.dart';
+import '../services/library_storage.dart';
 import '../services/program_storage.dart';
 import '../widgets/python_indent_modifier.dart';
 
 class EditorPage extends StatefulWidget {
-  const EditorPage({super.key, this.storage, this.libraryStorage});
+  const EditorPage({super.key, this.storage});
 
   final ProgramStorage? storage;
-  final LibraryStorage? libraryStorage;
 
   @override
   State<EditorPage> createState() => _EditorPageState();
@@ -22,17 +23,19 @@ class _EditorPageState extends State<EditorPage> {
   final _service = MicroPythonREPLService();
   late final CodeController _code;
   late final ProgramStorage _storage;
-  late final LibraryStorage _libraryStorage;
   String? _uploadedCode;
+  String? _uploadedName;
   int? _uploadedSession;
   String? _programName;
   String? _savedCode;
+  String? _notice;
+  String? _noticeActionLabel;
+  VoidCallback? _noticeAction;
 
   @override
   void initState() {
     super.initState();
     _storage = widget.storage ?? LocalProgramStorage();
-    _libraryStorage = widget.libraryStorage ?? LocalLibraryStorage();
     _code = CodeController(
       language: python,
       params: const EditorParams(tabSpaces: 4),
@@ -49,7 +52,34 @@ while True:
     time.sleep(0.5)
 ''',
     );
+    _programName = 'main.py';
     _code.addListener(_changed);
+    unawaited(_migrateLegacyLibraries());
+  }
+
+  Future<void> _migrateLegacyLibraries() async {
+    try {
+      final existing = await _storage.loadPrograms();
+      final names = existing.map((item) => item.name.toLowerCase()).toSet();
+      final legacyStorage = LocalLibraryStorage();
+      final legacy = await legacyStorage.loadLibraries();
+      for (final library in legacy) {
+        if (isValidWorkspaceFileName(library.name)) {
+          if (names.add(library.name.toLowerCase())) {
+            await _storage.saveProgram(
+              SavedProgram(
+                name: library.name,
+                code: library.code,
+                updatedAt: library.updatedAt,
+              ),
+            );
+          }
+          await legacyStorage.deleteLibrary(library.name);
+        }
+      }
+    } catch (_) {
+      // A migração é oportunista e nunca impede o editor de abrir.
+    }
   }
 
   void _changed() => setState(() {});
@@ -61,15 +91,25 @@ while True:
 
   void _showMessage(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+    setState(() {
+      _notice = message;
+      _noticeActionLabel = null;
+      _noticeAction = null;
+    });
   }
 
-  Future<String?> _askProgramName() async {
+  Future<String?> _askProgramName({
+    String title = 'Salvar arquivo',
+    String actionLabel = 'Salvar',
+    String? initialName,
+  }) async {
     final result = await showDialog<String>(
       context: context,
-      builder: (_) => _ProgramNameDialog(initialName: _programName ?? ''),
+      builder: (_) => _ProgramNameDialog(
+        title: title,
+        actionLabel: actionLabel,
+        initialName: initialName ?? _programName ?? '',
+      ),
     );
     return result == null ? null : _normalizedProgramName(result);
   }
@@ -78,8 +118,8 @@ while True:
     return await showDialog<bool>(
           context: context,
           builder: (dialogContext) => AlertDialog(
-            title: const Text('Substituir programa?'),
-            content: Text('Já existe um programa chamado $name.'),
+            title: const Text('Substituir arquivo?'),
+            content: Text('Já existe um arquivo chamado $name.'),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(dialogContext, false),
@@ -95,9 +135,23 @@ while True:
         false;
   }
 
-  Future<void> _saveProgram() async {
-    final name = await _askProgramName();
+  Future<void> _saveProgram({bool saveAs = false}) async {
+    final name = _programName == null || saveAs
+        ? await _askProgramName(
+            title: saveAs ? 'Salvar como no celular' : 'Salvar no celular',
+            initialName: _programName,
+          )
+        : _programName;
     if (name == null || !mounted) return;
+    if (saveAs && name.toLowerCase() == _programName?.toLowerCase()) {
+      _showMessage('Escolha um nome diferente para salvar como novo arquivo.');
+      return;
+    }
+    final nameError = workspaceFileNameError(name);
+    if (nameError != null) {
+      _showMessage(nameError);
+      return;
+    }
 
     try {
       final programs = await _storage.loadPrograms();
@@ -122,86 +176,12 @@ while True:
     }
   }
 
-  Future<void> _saveAsLibrary() async {
-    final suggestedName =
-        _programName != null && isValidLibraryName(_programName!)
-            ? _programName!
-            : '';
-    final name = await showDialog<String>(
-      context: context,
-      builder: (_) => _LibraryNameDialog(initialName: suggestedName),
-    );
-    if (name == null || !mounted) return;
-
-    final library = SavedLibrary(
-      name: name,
-      code: _code.text,
-      updatedAt: DateTime.now(),
-    );
-    if (library.byteLength > 65536) {
-      _showMessage('A biblioteca deve ter no máximo 64 KiB.');
-      return;
-    }
-
-    try {
-      final libraries = await _libraryStorage.loadLibraries();
-      final exists = libraries.any(
-        (item) => item.name.toLowerCase() == name.toLowerCase(),
-      );
-      if (exists && !await _confirmLibraryOverwrite(name)) return;
-      await _libraryStorage.saveLibrary(library);
-      if (!mounted) return;
-      final canInstall = _service.isReady && _service.libraryManagerAvailable;
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(
-            content: Text('$name salva como biblioteca.'),
-            action: canInstall
-                ? SnackBarAction(
-                    label: 'Instalar',
-                    onPressed: () => _installSavedLibrary(library),
-                  )
-                : null,
-          ),
-        );
-    } catch (_) {
-      _showMessage('Não foi possível salvar a biblioteca.');
-    }
-  }
-
-  Future<bool> _confirmLibraryOverwrite(String name) async {
-    return await showDialog<bool>(
-          context: context,
-          builder: (dialogContext) => AlertDialog(
-            title: const Text('Substituir biblioteca?'),
-            content: Text('Já existe uma biblioteca chamada $name.'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext, false),
-                child: const Text('Cancelar'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(dialogContext, true),
-                child: const Text('Substituir'),
-              ),
-            ],
-          ),
-        ) ??
-        false;
-  }
-
-  Future<void> _installSavedLibrary(SavedLibrary library) async {
-    await _service.installLibrary(library.name, library.code);
-    if (mounted) _showMessage(_service.status);
-  }
-
-  Future<bool> _confirmDelete(String name) async {
+  Future<bool> _confirmDelete(String name, String location) async {
     return await showDialog<bool>(
           context: context,
           builder: (dialogContext) => AlertDialog(
             title: const Text('Excluir programa?'),
-            content: Text('$name será removido do celular.'),
+            content: Text('$name será removido $location.'),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(dialogContext, false),
@@ -217,62 +197,134 @@ while True:
         false;
   }
 
-  Future<SavedProgram?> _chooseProgram(List<SavedProgram> initialPrograms) {
+  Future<bool> _renameLocalProgram(SavedProgram program) async {
+    final newName = await _askProgramName(
+      title: 'Renomear no celular',
+      actionLabel: 'Renomear',
+      initialName: program.name,
+    );
+    if (newName == null || !mounted) return false;
+    if (newName.toLowerCase() == program.name.toLowerCase()) {
+      _showMessage('Escolha um nome diferente.');
+      return false;
+    }
+    final programs = await _storage.loadPrograms();
+    final exists = programs.any(
+      (item) => item.name.toLowerCase() == newName.toLowerCase(),
+    );
+    if (exists && !await _confirmOverwrite(newName)) return false;
+    await _storage.saveProgram(
+      SavedProgram(
+        name: newName,
+        code: program.code,
+        updatedAt: DateTime.now(),
+      ),
+    );
+    await _storage.deleteProgram(program.name);
+    if (!mounted) return false;
+    if (_programName?.toLowerCase() == program.name.toLowerCase()) {
+      setState(() {
+        _programName = newName;
+        _savedCode = program.code;
+        _uploadedName = null;
+        _uploadedCode = null;
+        _uploadedSession = null;
+      });
+    }
+    _showMessage('${program.name} renomeado para $newName no celular.');
+    return true;
+  }
+
+  Future<bool> _renameDeviceProgram(WorkspaceFile file) async {
+    final newName = await _askProgramName(
+      title: 'Renomear no ESP32',
+      actionLabel: 'Renomear',
+      initialName: file.name,
+    );
+    if (newName == null || !mounted) return false;
+    if (newName.toLowerCase() == file.name.toLowerCase()) {
+      _showMessage('Escolha um nome diferente.');
+      return false;
+    }
+    final success = await _service.renameWorkspaceFile(file.name, newName);
+    if (!mounted || !success) {
+      if (mounted) _showMessage(_service.status);
+      return false;
+    }
+    if (_programName?.toLowerCase() == file.name.toLowerCase()) {
+      setState(() {
+        _programName = newName;
+        _savedCode = null;
+        _uploadedName = newName;
+      });
+    }
+    _showMessage(_service.status);
+    return true;
+  }
+
+  Future<SavedProgram?> _chooseLocalProgram(
+    List<SavedProgram> initialPrograms,
+  ) {
     var programs = initialPrograms;
     return showDialog<SavedProgram>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Programas salvos'),
+          title: const Text('Arquivos no celular'),
           content: SizedBox(
             width: double.maxFinite,
+            height: 360,
             child: programs.isEmpty
-                ? const Text('Nenhum programa salvo.')
-                : ListView.separated(
-                    shrinkWrap: true,
-                    itemCount: programs.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
-                    itemBuilder: (context, index) {
-                      final program = programs[index];
-                      final lineCount =
-                          '\n'.allMatches(program.code).length + 1;
-                      return ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: const Icon(Icons.description_outlined),
-                        title: Text(
-                          program.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: Text('$lineCount linhas'),
-                        onTap: () => Navigator.pop(dialogContext, program),
-                        trailing: IconButton(
-                          tooltip: 'Excluir ${program.name}',
-                          icon: const Icon(Icons.delete_outline),
-                          onPressed: () async {
-                            if (!await _confirmDelete(program.name)) return;
-                            try {
-                              await _storage.deleteProgram(program.name);
-                              if (!mounted) return;
-                              if (_programName?.toLowerCase() ==
-                                  program.name.toLowerCase()) {
-                                setState(() {
-                                  _programName = null;
-                                  _savedCode = null;
-                                });
+                ? const Center(child: Text('Nenhum arquivo salvo no celular'))
+                : ListView(
+                    children: [
+                      for (final program in programs)
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.description_outlined),
+                          title: Text(program.name),
+                          subtitle: Text(
+                            '${'\n'.allMatches(program.code).length + 1} linhas',
+                          ),
+                          onTap: () => Navigator.pop(dialogContext, program),
+                          trailing: PopupMenuButton<String>(
+                            tooltip: 'Ações de ${program.name}',
+                            itemBuilder: (_) => const [
+                              PopupMenuItem(
+                                value: 'rename',
+                                child: ListTile(
+                                  leading:
+                                      Icon(Icons.drive_file_rename_outline),
+                                  title: Text('Renomear'),
+                                ),
+                              ),
+                              PopupMenuItem(
+                                value: 'delete',
+                                child: ListTile(
+                                  leading: Icon(Icons.delete_outline),
+                                  title: Text('Excluir'),
+                                ),
+                              ),
+                            ],
+                            onSelected: (action) async {
+                              if (action == 'rename') {
+                                if (!await _renameLocalProgram(program)) return;
+                              } else {
+                                if (!await _confirmDelete(
+                                  program.name,
+                                  'do celular',
+                                )) {
+                                  return;
+                                }
+                                await _storage.deleteProgram(program.name);
                               }
                               programs = await _storage.loadPrograms();
                               if (!dialogContext.mounted) return;
                               setDialogState(() {});
-                            } catch (_) {
-                              _showMessage(
-                                'Não foi possível excluir o programa.',
-                              );
-                            }
-                          },
+                            },
+                          ),
                         ),
-                      );
-                    },
+                    ],
                   ),
           ),
           actions: [
@@ -286,15 +338,95 @@ while True:
     );
   }
 
-  Future<void> _openProgram() async {
+  Future<WorkspaceFile?> _chooseDeviceFile(
+    List<WorkspaceFile> initialFiles,
+  ) {
+    var files = initialFiles;
+    return showDialog<WorkspaceFile>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Arquivos no ESP32'),
+          content: SizedBox(
+            width: double.maxFinite,
+            height: 360,
+            child: ListView(
+              children: [
+                for (final file in files)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(
+                      file.name.toLowerCase() == 'main.py'
+                          ? Icons.play_circle_outline
+                          : Icons.description_outlined,
+                    ),
+                    title: Text(file.name),
+                    subtitle: Text('/app/${file.name} • ${file.size} bytes'),
+                    onTap: () => Navigator.pop(dialogContext, file),
+                    trailing: file.name.toLowerCase() == 'main.py'
+                        ? const Tooltip(
+                            message: 'Entrypoint do projeto',
+                            child: Icon(Icons.lock_outline),
+                          )
+                        : PopupMenuButton<String>(
+                            tooltip: 'Ações de ${file.name}',
+                            itemBuilder: (_) => const [
+                              PopupMenuItem(
+                                value: 'rename',
+                                child: ListTile(
+                                  leading:
+                                      Icon(Icons.drive_file_rename_outline),
+                                  title: Text('Renomear'),
+                                ),
+                              ),
+                              PopupMenuItem(
+                                value: 'delete',
+                                child: ListTile(
+                                  leading: Icon(Icons.delete_outline),
+                                  title: Text('Excluir'),
+                                ),
+                              ),
+                            ],
+                            onSelected: (action) async {
+                              if (action == 'rename') {
+                                if (!await _renameDeviceProgram(file)) return;
+                              } else {
+                                if (!await _confirmDelete(
+                                  file.name,
+                                  'do ESP32',
+                                )) {
+                                  return;
+                                }
+                                if (!await _service
+                                    .deleteWorkspaceFile(file.name)) {
+                                  return;
+                                }
+                              }
+                              files = await _service.listWorkspaceFiles();
+                              if (!dialogContext.mounted) return;
+                              setDialogState(() {});
+                            },
+                          ),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Fechar'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openLocalProgram() async {
     try {
       final programs = await _storage.loadPrograms();
       if (!mounted) return;
-      if (programs.isEmpty) {
-        _showMessage('Nenhum programa salvo no celular.');
-        return;
-      }
-      final selected = await _chooseProgram(programs);
+      final selected = await _chooseLocalProgram(programs);
       if (selected == null || !mounted) return;
       _code.value = TextEditingValue(
         text: selected.code,
@@ -303,23 +435,134 @@ while True:
       setState(() {
         _programName = selected.name;
         _savedCode = selected.code;
+        _uploadedName = null;
+        _uploadedCode = null;
+        _uploadedSession = null;
       });
       _showMessage('${selected.name} carregado.');
     } catch (_) {
-      _showMessage('Não foi possível carregar os programas.');
+      _showMessage('Não foi possível abrir os arquivos do celular.');
     }
   }
 
-  Future<void> _send() async {
+  Future<void> _openDeviceProgram() async {
+    if (!_service.isReady || !_service.workspaceManagerAvailable) return;
+    try {
+      final files = await _service.listWorkspaceFiles();
+      if (!mounted) return;
+      final selected = await _chooseDeviceFile(files);
+      if (selected == null || !mounted) return;
+      final content = await _service.readWorkspaceFile(selected);
+      if (content == null || !mounted) return;
+      _code.value = TextEditingValue(
+        text: content,
+        selection: TextSelection.collapsed(offset: content.length),
+      );
+      setState(() {
+        _programName = selected.name;
+        _savedCode = null;
+        _uploadedName = selected.name;
+        _uploadedCode = content;
+        _uploadedSession = _service.sessionId;
+      });
+      _showMessage('${selected.name} aberto do ESP32.');
+    } catch (_) {
+      _showMessage('Não foi possível abrir os arquivos do ESP32.');
+    }
+  }
+
+  Future<bool> _confirmDiscardChanges() async {
+    final savedSomewhere = _savedCode == _code.text ||
+        (_uploadedName == _programName &&
+            _uploadedCode == _code.text &&
+            _uploadedSession == _service.sessionId);
+    if (_code.text.isEmpty || savedSomewhere) return true;
+    return await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Criar novo arquivo?'),
+            content: const Text(
+              'O código atual possui alterações que ainda não foram salvas.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Descartar e criar'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
+  Future<void> _newFile() async {
+    if (!await _confirmDiscardChanges() || !mounted) return;
+    _code.value = const TextEditingValue();
+    setState(() {
+      _programName = null;
+      _savedCode = null;
+      _uploadedName = null;
+      _uploadedCode = null;
+      _uploadedSession = null;
+      _notice = null;
+      _noticeActionLabel = null;
+      _noticeAction = null;
+    });
+  }
+
+  Future<void> _send({bool saveAs = false}) async {
+    var name = _programName;
+    if (name == null || saveAs) {
+      name = await _askProgramName(
+        title: saveAs ? 'Salvar como no ESP32' : 'Salvar no ESP32',
+        initialName: _programName,
+      );
+      if (name == null || !mounted) return;
+    }
+    if (saveAs && name.toLowerCase() == _programName?.toLowerCase()) {
+      _showMessage('Escolha um nome diferente para salvar como novo arquivo.');
+      return;
+    }
+    if (saveAs) {
+      final files = await _service.listWorkspaceFiles();
+      if (!mounted) return;
+      final exists = files.any(
+        (file) => file.name.toLowerCase() == name!.toLowerCase(),
+      );
+      if (exists && !await _confirmOverwrite(name)) return;
+    }
     final content = _code.text;
     final session = _service.sessionId;
-    final success = await _service.uploadFile(content);
+    final success = await _service.saveWorkspaceFile(name, content);
     if (mounted && success) {
       setState(() {
+        _programName = name;
+        if (saveAs) _savedCode = null;
+        _uploadedName = name;
         _uploadedCode = content;
         _uploadedSession = session;
       });
     }
+  }
+
+  Future<void> _runProject() async {
+    final uploaded = _uploadedName == _programName &&
+        _uploadedCode == _code.text &&
+        _uploadedSession == _service.sessionId;
+    if (!uploaded) {
+      await _send();
+      if (!mounted ||
+          _uploadedName != _programName ||
+          _uploadedCode != _code.text ||
+          _uploadedSession != _service.sessionId) {
+        return;
+      }
+    }
+    await _service.runWorkspaceMain();
   }
 
   @override
@@ -334,7 +577,8 @@ while True:
     return ListenableBuilder(
       listenable: _service,
       builder: (context, _) {
-        final uploaded = _uploadedCode == _code.text &&
+        final uploaded = _uploadedName == _programName &&
+            _uploadedCode == _code.text &&
             _uploadedSession == _service.sessionId;
         return Padding(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
@@ -347,6 +591,35 @@ while True:
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontWeight: FontWeight.w600),
               ),
+              if (_notice != null)
+                Card(
+                  child: ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.info_outline),
+                    title: Text(_notice!),
+                    trailing: Wrap(
+                      spacing: 0,
+                      children: [
+                        if (_noticeAction != null)
+                          TextButton(
+                            onPressed: _noticeAction,
+                            child: Text(_noticeActionLabel!),
+                          ),
+                        IconButton(
+                          tooltip: 'Fechar aviso',
+                          onPressed: () {
+                            setState(() {
+                              _notice = null;
+                              _noticeActionLabel = null;
+                              _noticeAction = null;
+                            });
+                          },
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               if (_service.state == KitState.uploading ||
                   _service.state == KitState.managingLibraries)
                 Padding(
@@ -355,37 +628,146 @@ while True:
                 ),
               Row(
                 children: [
-                  const Icon(Icons.description_outlined, size: 20),
-                  const SizedBox(width: 6),
                   Expanded(
-                    child: Text(
-                      '${_programName ?? 'Novo programa'}'
-                      '${_savedCode == _code.text ? '' : ' • não salvo'}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodyMedium,
+                    child: Row(
+                      children: [
+                        const Tooltip(
+                          message: 'Arquivos do celular',
+                          child: Icon(Icons.phone_android_outlined, size: 20),
+                        ),
+                        IconButton(
+                          tooltip: 'Abrir arquivo do celular',
+                          visualDensity: VisualDensity.compact,
+                          style: IconButton.styleFrom(
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          constraints: const BoxConstraints.tightFor(
+                            width: 36,
+                            height: 40,
+                          ),
+                          padding: const EdgeInsets.all(6),
+                          onPressed: _openLocalProgram,
+                          icon: const Icon(Icons.folder_open_outlined),
+                        ),
+                        IconButton(
+                          tooltip: 'Salvar arquivo no celular',
+                          visualDensity: VisualDensity.compact,
+                          style: IconButton.styleFrom(
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          constraints: const BoxConstraints.tightFor(
+                            width: 36,
+                            height: 40,
+                          ),
+                          padding: const EdgeInsets.all(6),
+                          onPressed: _saveProgram,
+                          icon: const Icon(Icons.save_outlined),
+                        ),
+                        IconButton(
+                          tooltip: 'Salvar como no celular',
+                          visualDensity: VisualDensity.compact,
+                          style: IconButton.styleFrom(
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          constraints: const BoxConstraints.tightFor(
+                            width: 36,
+                            height: 40,
+                          ),
+                          padding: const EdgeInsets.all(6),
+                          onPressed: () => _saveProgram(saveAs: true),
+                          icon: const Icon(Icons.drive_file_rename_outline),
+                        ),
+                      ],
                     ),
                   ),
                   IconButton(
-                    tooltip: 'Abrir programa salvo',
+                    tooltip: 'Novo arquivo em branco',
                     visualDensity: VisualDensity.compact,
-                    onPressed: _openProgram,
-                    icon: const Icon(Icons.folder_open_outlined),
+                    style: IconButton.styleFrom(
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    constraints: const BoxConstraints.tightFor(
+                      width: 36,
+                      height: 40,
+                    ),
+                    padding: const EdgeInsets.all(6),
+                    onPressed: _newFile,
+                    icon: const Icon(Icons.add_circle_outline),
                   ),
-                  IconButton(
-                    tooltip: 'Salvar programa no celular',
-                    visualDensity: VisualDensity.compact,
-                    onPressed: _code.text.trim().isEmpty ? null : _saveProgram,
-                    icon: const Icon(Icons.save_outlined),
-                  ),
-                  IconButton(
-                    tooltip: 'Salvar código como biblioteca',
-                    visualDensity: VisualDensity.compact,
-                    onPressed:
-                        _code.text.trim().isEmpty ? null : _saveAsLibrary,
-                    icon: const Icon(Icons.local_library_outlined),
+                  Expanded(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Tooltip(
+                          message: 'Arquivos do ESP32',
+                          child: Icon(
+                            Icons.developer_board_outlined,
+                            size: 20,
+                            color: _service.isConnected ? null : Colors.grey,
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Abrir arquivo do ESP32',
+                          visualDensity: VisualDensity.compact,
+                          style: IconButton.styleFrom(
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          constraints: const BoxConstraints.tightFor(
+                            width: 36,
+                            height: 40,
+                          ),
+                          padding: const EdgeInsets.all(6),
+                          onPressed: _service.isReady &&
+                                  _service.workspaceManagerAvailable
+                              ? _openDeviceProgram
+                              : null,
+                          icon: const Icon(Icons.folder_open_outlined),
+                        ),
+                        IconButton(
+                          tooltip: 'Salvar arquivo no ESP32',
+                          visualDensity: VisualDensity.compact,
+                          style: IconButton.styleFrom(
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          constraints: const BoxConstraints.tightFor(
+                            width: 36,
+                            height: 40,
+                          ),
+                          padding: const EdgeInsets.all(6),
+                          onPressed: _service.isReady &&
+                                  _service.workspaceManagerAvailable
+                              ? _send
+                              : null,
+                          icon: const Icon(Icons.save_outlined),
+                        ),
+                        IconButton(
+                          tooltip: 'Salvar como no ESP32',
+                          visualDensity: VisualDensity.compact,
+                          style: IconButton.styleFrom(
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          constraints: const BoxConstraints.tightFor(
+                            width: 36,
+                            height: 40,
+                          ),
+                          padding: const EdgeInsets.all(6),
+                          onPressed: _service.isReady &&
+                                  _service.workspaceManagerAvailable
+                              ? () => _send(saveAs: true)
+                              : null,
+                          icon: const Icon(Icons.drive_file_rename_outline),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
+              ),
+              Text(
+                '${_programName ?? 'Novo arquivo'}'
+                '${_savedCode == _code.text ? '' : ' • não salvo no celular'}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodyMedium,
               ),
               const SizedBox(height: 8),
               Expanded(
@@ -417,30 +799,34 @@ while True:
               const SizedBox(height: 8),
               Text(
                 uploaded
-                    ? 'Este código foi enviado ao kit.'
-                    : 'Envie o código antes de executar.',
+                    ? '${_programName ?? 'Arquivo'} sincronizado com /app.'
+                    : 'Executar salva o arquivo atual e inicia main.py.',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(height: 4),
               Wrap(
-                spacing: 8,
+                spacing: 4,
                 runSpacing: 4,
                 alignment: WrapAlignment.center,
                 children: [
-                  FilledButton.tonalIcon(
-                    onPressed: _service.isReady && _code.text.trim().isNotEmpty
-                        ? _send
-                        : null,
-                    icon: const Icon(Icons.upload),
-                    label: const Text('Enviar'),
-                  ),
                   FilledButton.icon(
-                    onPressed:
-                        _service.isReady && uploaded ? _service.runFile : null,
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    onPressed: _service.isReady &&
+                            _service.workspaceManagerAvailable &&
+                            _programName != null
+                        ? _runProject
+                        : null,
                     icon: const Icon(Icons.play_arrow),
                     label: const Text('Executar'),
                   ),
                   OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      visualDensity: VisualDensity.compact,
+                    ),
                     onPressed: _service.state == KitState.running ||
                             _service.state == KitState.waitingForInput
                         ? _service.stop
@@ -459,8 +845,14 @@ while True:
 }
 
 class _ProgramNameDialog extends StatefulWidget {
-  const _ProgramNameDialog({required this.initialName});
+  const _ProgramNameDialog({
+    required this.title,
+    required this.actionLabel,
+    required this.initialName,
+  });
 
+  final String title;
+  final String actionLabel;
   final String initialName;
 
   @override
@@ -478,70 +870,12 @@ class _ProgramNameDialogState extends State<_ProgramNameDialog> {
   }
 
   void _submit() {
-    if (_controller.text.trim().isEmpty) {
-      setState(() => _error = 'Informe um nome.');
-      return;
-    }
-    Navigator.pop(context, _controller.text);
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Salvar programa'),
-      content: TextField(
-        controller: _controller,
-        autofocus: true,
-        maxLength: 60,
-        decoration: InputDecoration(
-          labelText: 'Nome do programa',
-          hintText: 'exemplo.py',
-          errorText: _error,
-        ),
-        onSubmitted: (_) => _submit(),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancelar'),
-        ),
-        FilledButton(onPressed: _submit, child: const Text('Salvar')),
-      ],
-    );
-  }
-}
-
-class _LibraryNameDialog extends StatefulWidget {
-  const _LibraryNameDialog({required this.initialName});
-
-  final String initialName;
-
-  @override
-  State<_LibraryNameDialog> createState() => _LibraryNameDialogState();
-}
-
-class _LibraryNameDialogState extends State<_LibraryNameDialog> {
-  late final TextEditingController _controller;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = TextEditingController(text: widget.initialName);
-  }
-
-  void _submit() {
     var name = _controller.text.trim();
     if (name.isNotEmpty && !name.toLowerCase().endsWith('.py')) {
       name = '$name.py';
     }
-    final error = name.isEmpty ? 'Informe um nome.' : libraryNameError(name);
+    final error =
+        name.isEmpty ? 'Informe um nome.' : workspaceFileNameError(name);
     if (error != null) {
       setState(() => _error = error);
       return;
@@ -558,14 +892,14 @@ class _LibraryNameDialogState extends State<_LibraryNameDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Salvar como biblioteca'),
+      title: Text(widget.title),
       content: TextField(
         controller: _controller,
         autofocus: true,
         maxLength: 60,
         decoration: InputDecoration(
-          labelText: 'Nome do módulo',
-          hintText: 'minha_biblioteca.py',
+          labelText: 'Nome do arquivo',
+          hintText: 'exemplo.py',
           helperText: 'Use letras, números e _.',
           errorText: _error,
         ),
@@ -576,7 +910,7 @@ class _LibraryNameDialogState extends State<_LibraryNameDialog> {
           onPressed: () => Navigator.pop(context),
           child: const Text('Cancelar'),
         ),
-        FilledButton(onPressed: _submit, child: const Text('Salvar')),
+        FilledButton(onPressed: _submit, child: Text(widget.actionLabel)),
       ],
     );
   }

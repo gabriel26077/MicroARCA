@@ -1,7 +1,7 @@
-"""Gerenciador transacional das bibliotecas instaladas pelo aplicativo ARCA.
+"""Arquivos seguros do MicroARCA: pacotes oficiais em /lib e projeto em /app.
 
-Esta API aceita somente módulos Python diretamente dentro de /lib. Ela não é
-um explorador de arquivos e nunca recebe um caminho arbitrário do cliente.
+A API nunca recebe caminhos arbitrários: aceita apenas nomes simples de módulos
+Python e mantém os arquivos de infraestrutura da raiz fora do alcance do app.
 """
 
 import binascii
@@ -10,8 +10,9 @@ import os
 import sys
 
 
-VERSION = 2
+VERSION = 3
 LIB_DIR = "lib"
+APP_DIR = "app"
 MAX_FILE_SIZE = 65536
 _RESERVED = (
     "boot.py",
@@ -30,6 +31,13 @@ _digest = None
 _expected_hash = None
 _transaction = False
 _staged = []
+
+_workspace_file = None
+_workspace_name = None
+_workspace_size = 0
+_workspace_written = 0
+_workspace_digest = None
+_workspace_expected_hash = None
 
 
 def _valid_name(name):
@@ -57,6 +65,46 @@ def _ensure_lib_dir():
     except OSError:
         if not (os.stat(LIB_DIR)[0] & 0x4000):
             raise
+
+
+def _ensure_directory(path):
+    try:
+        os.mkdir(path)
+    except OSError:
+        if not (os.stat(path)[0] & 0x4000):
+            raise
+
+
+def _copy_file(source, target):
+    with open(source, "rb") as original:
+        with open(target, "wb") as copy:
+            while True:
+                chunk = original.read(256)
+                if not chunk:
+                    break
+                copy.write(chunk)
+
+
+def _ensure_workspace():
+    _ensure_directory(APP_DIR)
+    entrypoint = APP_DIR + "/main.py"
+    if _exists(entrypoint):
+        return
+    # Migra o último programa do fluxo antigo sem remover o user.py original.
+    if _exists("user.py") and os.stat("user.py")[6] <= MAX_FILE_SIZE:
+        _copy_file("user.py", entrypoint)
+    else:
+        with open(entrypoint, "w") as entry:
+            entry.write('# Arquivo principal do projeto MicroARCA\n')
+    os.sync()
+
+
+def _directory_has_name(directory, name):
+    try:
+        expected = name.lower()
+        return any(item.lower() == expected for item in os.listdir(directory))
+    except OSError:
+        return False
 
 
 def _path(name):
@@ -154,6 +202,8 @@ def _start(name, size, sha256):
     ):
         raise ValueError("SHA-256 inválido")
     _ensure_lib_dir()
+    if _directory_has_name(APP_DIR, name):
+        raise ValueError("Já existe um arquivo do projeto com esse nome")
     _name = name
     _size = size
     _written = 0
@@ -371,3 +421,224 @@ def filesystem_info():
         "free": block_size * values[4],
         "total": block_size * values[2],
     }
+
+
+def _workspace_checked_name(name):
+    if not isinstance(name, str) or not name.endswith(".py"):
+        raise ValueError("Nome de arquivo inválido")
+    module = name[:-3]
+    letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    if (
+        not module
+        or module[0] not in letters + "_"
+        or any(char not in letters + "0123456789_" for char in module)
+        or (name.lower() in _RESERVED and name.lower() != "main.py")
+    ):
+        raise ValueError("Nome de arquivo inválido")
+    return name
+
+
+def _workspace_path(name):
+    return APP_DIR + "/" + _workspace_checked_name(name)
+
+
+def _workspace_part_path(name):
+    return APP_DIR + "/." + _workspace_checked_name(name) + ".arca-part"
+
+
+def _workspace_backup_path(name):
+    return APP_DIR + "/." + _workspace_checked_name(name) + ".arca-bak"
+
+
+def workspace_abort():
+    global _workspace_file, _workspace_name
+    if _workspace_file is not None:
+        _workspace_file.close()
+        _workspace_file = None
+    if _workspace_name is not None:
+        try:
+            os.remove(_workspace_part_path(_workspace_name))
+        except OSError:
+            pass
+    _workspace_name = None
+
+
+def _workspace_recover(name):
+    target = _workspace_path(name)
+    backup = _workspace_backup_path(name)
+    if _exists(backup):
+        if _exists(target):
+            os.remove(backup)
+        else:
+            os.rename(backup, target)
+
+
+def workspace_begin(name, size, sha256):
+    global _workspace_file, _workspace_name, _workspace_size
+    global _workspace_written, _workspace_digest, _workspace_expected_hash
+    workspace_abort()
+    name = _workspace_checked_name(name)
+    if not isinstance(size, int) or not 0 <= size <= MAX_FILE_SIZE:
+        raise ValueError("Arquivo deve ter no máximo 64 KiB")
+    if (
+        not isinstance(sha256, str)
+        or len(sha256) != 64
+        or any(char not in "0123456789abcdef" for char in sha256)
+    ):
+        raise ValueError("SHA-256 inválido")
+    _ensure_workspace()
+    if _directory_has_name(LIB_DIR, name):
+        raise ValueError("Já existe uma biblioteca oficial com esse nome")
+    _workspace_recover(name)
+    _workspace_name = name
+    _workspace_size = size
+    _workspace_written = 0
+    _workspace_digest = hashlib.sha256()
+    _workspace_expected_hash = sha256
+    _workspace_file = open(_workspace_part_path(name), "wb")
+
+
+def workspace_append(hex_data):
+    global _workspace_written
+    if _workspace_file is None:
+        raise RuntimeError("Upload de arquivo não iniciado")
+    data = binascii.unhexlify(hex_data)
+    if _workspace_written + len(data) > _workspace_size:
+        workspace_abort()
+        raise ValueError("Upload maior que o tamanho declarado")
+    count = _workspace_file.write(data)
+    if count != len(data):
+        workspace_abort()
+        raise OSError("Gravação incompleta")
+    _workspace_digest.update(data)
+    _workspace_written += count
+
+
+def workspace_finish():
+    global _workspace_file, _workspace_name
+    if _workspace_file is None or _workspace_name is None:
+        raise RuntimeError("Upload de arquivo não iniciado")
+    name = _workspace_name
+    if (
+        _workspace_written != _workspace_size
+        or binascii.hexlify(_workspace_digest.digest()).decode()
+        != _workspace_expected_hash
+    ):
+        workspace_abort()
+        raise ValueError("Tamanho ou SHA-256 do arquivo incorreto")
+    _workspace_file.close()
+    _workspace_file = None
+    os.sync()
+    disk_hash = hashlib.sha256()
+    with open(_workspace_part_path(name), "rb") as saved:
+        while True:
+            chunk = saved.read(256)
+            if not chunk:
+                break
+            disk_hash.update(chunk)
+    if binascii.hexlify(disk_hash.digest()).decode() != _workspace_expected_hash:
+        workspace_abort()
+        raise ValueError("SHA-256 do arquivo gravado incorreto")
+
+    target = _workspace_path(name)
+    backup = _workspace_backup_path(name)
+    had_target = _exists(target)
+    try:
+        if _exists(backup):
+            os.remove(backup)
+        if had_target:
+            os.rename(target, backup)
+        os.rename(_workspace_part_path(name), target)
+        os.sync()
+    except Exception:
+        try:
+            if _exists(target):
+                os.remove(target)
+            if had_target and _exists(backup):
+                os.rename(backup, target)
+        finally:
+            workspace_abort()
+            os.sync()
+        raise
+    if _exists(backup):
+        try:
+            os.remove(backup)
+        except OSError:
+            pass
+    _workspace_name = None
+    _forget_import(name)
+    os.sync()
+
+
+def workspace_list():
+    _ensure_workspace()
+    result = []
+    for name in os.listdir(APP_DIR):
+        try:
+            _workspace_checked_name(name)
+            stat = os.stat(_workspace_path(name))
+            if not (stat[0] & 0x4000):
+                result.append({"name": name, "size": stat[6]})
+        except (OSError, ValueError):
+            pass
+    result.sort(key=lambda item: (item["name"].lower() != "main.py", item["name"].lower()))
+    return result
+
+
+def workspace_read_chunk(name, offset, size=128):
+    name = _workspace_checked_name(name)
+    if not isinstance(offset, int) or offset < 0:
+        raise ValueError("Posição inválida")
+    if not isinstance(size, int) or not 0 < size <= 256:
+        raise ValueError("Tamanho de leitura inválido")
+    _ensure_workspace()
+    with open(_workspace_path(name), "rb") as source:
+        source.seek(offset)
+        return binascii.hexlify(source.read(size)).decode()
+
+
+def workspace_delete(name):
+    name = _workspace_checked_name(name)
+    if name.lower() == "main.py":
+        raise ValueError("main.py é o entrypoint e não pode ser excluído")
+    if _workspace_file is not None:
+        raise RuntimeError("Upload de arquivo em andamento")
+    os.remove(_workspace_path(name))
+    _forget_import(name)
+    os.sync()
+
+
+def workspace_rename(old_name, new_name):
+    old_name = _workspace_checked_name(old_name)
+    new_name = _workspace_checked_name(new_name)
+    if old_name.lower() == "main.py":
+        raise ValueError("main.py é o entrypoint e não pode ser renomeado")
+    if old_name.lower() == new_name.lower():
+        raise ValueError("Escolha um nome diferente")
+    if _workspace_file is not None:
+        raise RuntimeError("Upload de arquivo em andamento")
+    _ensure_workspace()
+    if _directory_has_name(LIB_DIR, new_name):
+        raise ValueError("Já existe uma biblioteca oficial com esse nome")
+    if _directory_has_name(APP_DIR, new_name):
+        raise ValueError("Já existe um arquivo do projeto com esse nome")
+    os.rename(_workspace_path(old_name), _workspace_path(new_name))
+    _forget_import(old_name)
+    _forget_import(new_name)
+    os.sync()
+
+
+def workspace_prepare_run():
+    _ensure_workspace()
+    app_path = "/" + APP_DIR
+    if app_path not in sys.path:
+        sys.path.insert(0, app_path)
+    # Um novo Run deve importar novamente todos os módulos editáveis do projeto.
+    for item in workspace_list():
+        module = item["name"][:-3]
+        if module != "main":
+            try:
+                del sys.modules[module]
+            except KeyError:
+                pass
+    return app_path + "/main.py"

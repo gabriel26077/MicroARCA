@@ -51,6 +51,7 @@ Uint8List catalogBytes(List<Map<String, Object?>> packages) =>
 class MemoryCatalogCache implements CatalogCache {
   CachedCatalog? catalog;
   final files = <String, Uint8List>{};
+  Set<String>? downloadedPackageKeys;
 
   @override
   Future<CachedCatalog?> loadCatalog() async => catalog;
@@ -61,6 +62,19 @@ class MemoryCatalogCache implements CatalogCache {
   @override
   Future<void> saveFile(String digest, Uint8List bytes) async {
     files[digest] = bytes;
+  }
+
+  @override
+  Future<void> deleteFile(String digest) async {
+    files.remove(digest);
+  }
+
+  @override
+  Future<Set<String>?> loadDownloadedPackageKeys() async =>
+      downloadedPackageKeys == null ? null : Set.of(downloadedPackageKeys!);
+  @override
+  Future<void> saveDownloadedPackageKeys(Set<String> keys) async {
+    downloadedPackageKeys = Set.of(keys);
   }
 }
 
@@ -253,6 +267,51 @@ void main() {
       final downloaded = await client.download(catalog.packages);
       expect(downloaded.single.files.single.bytes, expected);
       expect(transport.requests, isEmpty);
+    });
+
+    test('lista downloads e preserva arquivo compartilhado ao apagar',
+        () async {
+      final expected = Uint8List.fromList(utf8.encode('VALUE = 1\n'));
+      final digest = sha256.convert(expected).toString();
+      final catalog = LibraryCatalog.parse(
+        catalogBytes([
+          packageJson(
+            id: 'primeira',
+            fileName: 'primeira.py',
+            size: expected.length,
+            digest: digest,
+          ),
+          packageJson(
+            id: 'segunda',
+            fileName: 'segunda.py',
+            size: expected.length,
+            digest: digest,
+          ),
+        ]),
+        catalogUri,
+      );
+      final cache = MemoryCatalogCache()..files[digest] = expected;
+      final client = LibraryCatalogClient(
+        transport: FakeCatalogTransport(),
+        cache: cache,
+      );
+
+      await client.download(catalog.packages);
+      expect(
+        (await client.downloadedPackages(catalog)).map((item) => item.id),
+        ['primeira', 'segunda'],
+      );
+
+      await client.removeDownloadedPackage(catalog, catalog.packages.first);
+      expect(cache.files, contains(digest));
+      expect(
+        (await client.downloadedPackages(catalog)).map((item) => item.id),
+        ['segunda'],
+      );
+
+      await client.removeDownloadedPackage(catalog, catalog.packages.last);
+      expect(cache.files, isNot(contains(digest)));
+      expect(await client.downloadedPackages(catalog), isEmpty);
     });
 
     test('rejeita redirecionamento', () async {

@@ -1,24 +1,19 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
-import '../services/library_document_picker.dart';
 import '../services/library_catalog.dart';
 import '../services/library_catalog_client.dart';
-import '../services/library_storage.dart';
 import '../services/micropython_repl_service.dart';
 import '../services/package_installation_storage.dart';
+
+enum _LibrarySection { online, phone, device }
 
 class LibrariesPage extends StatefulWidget {
   const LibrariesPage({
     super.key,
-    this.storage,
-    this.picker,
     this.catalogRepository,
     this.packageStorage,
   });
 
-  final LibraryStorage? storage;
-  final LibraryDocumentPicker? picker;
   final LibraryCatalogRepository? catalogRepository;
   final PackageInstallationStorage? packageStorage;
 
@@ -28,20 +23,16 @@ class LibrariesPage extends StatefulWidget {
 
 class _LibrariesPageState extends State<LibrariesPage> {
   final _service = MicroPythonREPLService();
-  late final LibraryStorage _storage = widget.storage ?? LocalLibraryStorage();
-  late final LibraryDocumentPicker _picker =
-      widget.picker ?? LibraryDocumentPicker();
   late final LibraryCatalogRepository _catalogRepository =
       widget.catalogRepository ?? LibraryCatalogClient();
   late final PackageInstallationStorage _packageStorage =
       widget.packageStorage ?? LocalPackageInstallationStorage();
   static const _planner = PackageInstallationPlanner();
-  List<SavedLibrary> _local = const [];
   List<InstalledLibrary> _installed = const [];
+  List<CatalogPackage> _downloaded = const [];
   LibraryCatalog? _catalog;
   DevicePackageRegistry? _registry;
   final Map<String, String> _selectedVersions = {};
-  bool _loadingLocal = true;
   bool _loadingKit = false;
   bool _loadingCatalog = true;
   bool _catalogBusy = false;
@@ -49,11 +40,12 @@ class _LibrariesPageState extends State<LibrariesPage> {
   String? _catalogWarning;
   String? _catalogActivity;
   double? _catalogProgress;
+  String? _notice;
+  _LibrarySection _section = _LibrarySection.online;
 
   @override
   void initState() {
     super.initState();
-    _loadLocal();
     _loadCatalog();
     WidgetsBinding.instance.addPostFrameCallback((_) => _refreshKit());
   }
@@ -83,6 +75,7 @@ class _LibrariesPageState extends State<LibrariesPage> {
         _catalogWarning = snapshot.warning;
         _loadingCatalog = false;
       });
+      await _loadDownloaded();
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -92,20 +85,14 @@ class _LibrariesPageState extends State<LibrariesPage> {
     }
   }
 
-  Future<void> _loadLocal() async {
+  Future<void> _loadDownloaded() async {
+    final catalog = _catalog;
+    if (catalog == null) return;
     try {
-      final libraries = await _storage.loadLibraries();
-      if (mounted) {
-        setState(() {
-          _local = libraries;
-          _loadingLocal = false;
-        });
-      }
+      final packages = await _catalogRepository.downloadedPackages(catalog);
+      if (mounted) setState(() => _downloaded = packages);
     } catch (error) {
-      if (mounted) {
-        setState(() => _loadingLocal = false);
-        _message('Não foi possível carregar as bibliotecas: $error');
-      }
+      _message('Não foi possível consultar os downloads: $error');
     }
   }
 
@@ -129,73 +116,6 @@ class _LibrariesPageState extends State<LibrariesPage> {
         _loadingKit = false;
       });
     }
-  }
-
-  Future<void> _importLibrary() async {
-    try {
-      final library = await _picker.pick();
-      if (library == null || !mounted) return;
-      final exists = _local.any(
-        (item) => item.name.toLowerCase() == library.name.toLowerCase(),
-      );
-      if (exists &&
-          !await _confirm(
-            'Substituir biblioteca?',
-            '${library.name} já está salva no celular.',
-            'Substituir',
-          )) {
-        return;
-      }
-      await _storage.saveLibrary(library);
-      await _loadLocal();
-      _message('${library.name} salva no celular.');
-    } on PlatformException catch (error) {
-      _message(error.message ?? 'Não foi possível abrir o arquivo.');
-    } on FormatException catch (error) {
-      _message(error.message);
-    } catch (error) {
-      _message('Não foi possível importar a biblioteca: $error');
-    }
-  }
-
-  Future<void> _install(SavedLibrary library) async {
-    final managedBy = _registry?.packages.values
-        .where((package) => package.files.contains(library.name))
-        .firstOrNull;
-    if (managedBy != null) {
-      _message(
-        '${library.name} pertence ao pacote ${managedBy.name}. '
-        'Atualize ou remova pelo catálogo oficial.',
-      );
-      return;
-    }
-    final replacing = _installed.any(
-      (item) => item.name.toLowerCase() == library.name.toLowerCase(),
-    );
-    if (replacing &&
-        !await _confirm(
-          'Atualizar biblioteca?',
-          '${library.name} já está instalada no kit.',
-          'Atualizar',
-        )) {
-      return;
-    }
-    final success = await _service.installLibrary(library.name, library.code);
-    if (!mounted) return;
-    _message(_service.status);
-    if (success) await _refreshKit();
-  }
-
-  Future<void> _deleteLocal(SavedLibrary library) async {
-    if (!await _confirm(
-      'Excluir do celular?',
-      'A cópia instalada no kit, se houver, não será removida.',
-      'Excluir',
-    )) {
-      return;
-    }
-    await _storage.deleteLibrary(library.name);
-    await _loadLocal();
   }
 
   Future<void> _deleteFromKit(InstalledLibrary library) async {
@@ -248,6 +168,7 @@ class _LibrariesPageState extends State<LibrariesPage> {
           }
         },
       );
+      await _loadDownloaded();
       _message('${root.name} e suas dependências estão disponíveis offline.');
     } catch (error) {
       _message('Não foi possível baixar ${root.name}: $error');
@@ -259,6 +180,29 @@ class _LibrariesPageState extends State<LibrariesPage> {
           _catalogProgress = null;
         });
       }
+    }
+  }
+
+  Future<void> _deleteDownload(CatalogPackage package) async {
+    final catalog = _catalog;
+    if (catalog == null ||
+        !await _confirm(
+          'Apagar do celular?',
+          '${package.name} ${package.version} será removida dos downloads. '
+              'A instalação no dispositivo não será alterada.',
+          'Apagar',
+        )) {
+      return;
+    }
+    try {
+      setState(() => _catalogBusy = true);
+      await _catalogRepository.removeDownloadedPackage(catalog, package);
+      await _loadDownloaded();
+      _message('${package.name} removida do celular.');
+    } catch (error) {
+      _message('Não foi possível apagar ${package.name}: $error');
+    } finally {
+      if (mounted) setState(() => _catalogBusy = false);
     }
   }
 
@@ -413,9 +357,7 @@ class _LibrariesPageState extends State<LibrariesPage> {
 
   void _message(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+    setState(() => _notice = message);
   }
 
   String _size(int bytes) {
@@ -428,17 +370,20 @@ class _LibrariesPageState extends State<LibrariesPage> {
     final versions = catalog.versionsOf(id);
     final package = _selectedPackage(id);
     final installed = _registry?.packages[id];
+    final downloaded = _downloaded.any((item) => item.key == package.key);
     final dependencies = package.dependencies.isEmpty
         ? 'Nenhuma'
         : package.dependencies.map((item) => item.key).join(', ');
     return Card(
       child: ExpansionTile(
-        leading: const Icon(Icons.cloud_download_outlined),
+        leading: Icon(
+          downloaded ? Icons.download_done_outlined : Icons.cloud_outlined,
+        ),
         title: Text(package.name),
         subtitle: Text(
-          installed == null
-              ? '${package.id}@${package.version}'
-              : '${package.id}@${package.version} • instalada: ${installed.version}',
+          '${package.id}@${package.version}'
+          '${downloaded ? ' • No celular' : ''}'
+          '${installed == null ? '' : ' • no dispositivo: ${installed.version}'}',
         ),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         expandedCrossAxisAlignment: CrossAxisAlignment.start,
@@ -490,10 +435,13 @@ class _LibrariesPageState extends State<LibrariesPage> {
             runSpacing: 8,
             children: [
               OutlinedButton.icon(
-                onPressed:
-                    _catalogBusy ? null : () => _downloadOffline(package),
-                icon: const Icon(Icons.offline_pin_outlined),
-                label: const Text('Baixar'),
+                onPressed: _catalogBusy || downloaded
+                    ? null
+                    : () => _downloadOffline(package),
+                icon: Icon(downloaded
+                    ? Icons.check_circle_outline
+                    : Icons.offline_pin_outlined),
+                label: Text(downloaded ? 'No celular' : 'Baixar'),
               ),
               FilledButton.icon(
                 onPressed:
@@ -532,233 +480,271 @@ class _LibrariesPageState extends State<LibrariesPage> {
                   .whereType<InstalledPackageRecord>()
                   .toList() ??
               const <InstalledPackageRecord>[];
+          final managedFiles = _registry?.packages.values
+                  .expand((package) => package.files)
+                  .toSet() ??
+              const <String>{};
+          final unmanagedInstalled = _installed
+              .where((library) => !managedFiles.contains(library.name))
+              .toList();
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Catálogo oficial',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
+              SegmentedButton<_LibrarySection>(
+                segments: const [
+                  ButtonSegment(
+                    value: _LibrarySection.online,
+                    icon: Icon(Icons.cloud_outlined),
+                    label: Text('Online'),
                   ),
-                  IconButton(
-                    tooltip: 'Atualizar catálogo',
-                    onPressed: busy ? null : _loadCatalog,
-                    icon: const Icon(Icons.refresh),
+                  ButtonSegment(
+                    value: _LibrarySection.phone,
+                    icon: Icon(Icons.phone_android_outlined),
+                    label: Text('Celular'),
+                  ),
+                  ButtonSegment(
+                    value: _LibrarySection.device,
+                    icon: Icon(Icons.memory_outlined),
+                    label: Text('Dispositivo'),
                   ),
                 ],
+                selected: {_section},
+                showSelectedIcon: false,
+                onSelectionChanged: (selection) {
+                  setState(() => _section = selection.first);
+                },
               ),
-              const Text(
-                'Bibliotecas verificadas antes de qualquer alteração no ESP32.',
-              ),
-              const SizedBox(height: 8),
-              const Card(
-                child: ListTile(
-                  leading: Icon(Icons.security_outlined),
-                  title: Text('Bibliotecas executam código no ESP32'),
-                  subtitle: Text(
-                    'HTTPS, tamanho e SHA-256 protegem a integridade. '
-                    'O catálogo ainda não possui assinatura digital.',
-                  ),
-                ),
-              ),
-              if (_catalogActivity != null) ...[
-                Text(_catalogActivity!),
-                const SizedBox(height: 4),
-                LinearProgressIndicator(value: _catalogProgress),
-              ],
-              if (_catalogWarning != null)
+              if (_notice != null) ...[
+                const SizedBox(height: 8),
                 Card(
                   child: ListTile(
-                    leading: const Icon(Icons.offline_bolt_outlined),
-                    title: Text(_catalogWarning!),
-                  ),
-                ),
-              if (_loadingCatalog)
-                const Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Center(child: CircularProgressIndicator()),
-                )
-              else if (_catalogError != null)
-                Card(
-                  child: ListTile(
-                    leading: const Icon(Icons.cloud_off_outlined),
-                    title: const Text('Catálogo indisponível'),
-                    subtitle: Text(_catalogError!),
+                    leading: const Icon(Icons.info_outline),
+                    title: Text(_notice!),
                     trailing: IconButton(
-                      tooltip: 'Tentar novamente',
-                      onPressed: _loadCatalog,
+                      tooltip: 'Fechar aviso',
+                      onPressed: () => setState(() => _notice = null),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              if (_section == _LibrarySection.online) ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Catálogo oficial',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Atualizar catálogo',
+                      onPressed: busy ? null : _loadCatalog,
                       icon: const Icon(Icons.refresh),
                     ),
-                  ),
-                )
-              else
-                for (final id in catalogIds ?? const <String>[])
-                  _catalogPackageCard(id, canInstallCatalog),
-              if (_service.isConnected &&
-                  _service.libraryManagerAvailable &&
-                  _service.libraryManagerVersion < 2)
+                  ],
+                ),
+                const Text(
+                  'Bibliotecas verificadas antes de qualquer alteração no ESP32.',
+                ),
+                const SizedBox(height: 8),
                 const Card(
                   child: ListTile(
-                    leading: Icon(Icons.system_update_alt),
-                    title: Text('Atualização necessária para pacotes online'),
+                    leading: Icon(Icons.security_outlined),
+                    title: Text('Bibliotecas executam código no ESP32'),
                     subtitle: Text(
-                      'Atualize arca_files.py no ESP32. As bibliotecas locais '
-                      'de um único arquivo continuam disponíveis.',
+                      'HTTPS, tamanho e SHA-256 protegem a integridade. '
+                      'O catálogo ainda não possui assinatura digital.',
                     ),
                   ),
                 ),
-              if (installedRoots.isNotEmpty) ...[
+                if (_catalogActivity != null) ...[
+                  Text(_catalogActivity!),
+                  const SizedBox(height: 4),
+                  LinearProgressIndicator(value: _catalogProgress),
+                ],
+                if (_catalogWarning != null)
+                  Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.offline_bolt_outlined),
+                      title: Text(_catalogWarning!),
+                    ),
+                  ),
+                if (_loadingCatalog)
+                  const Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                else if (_catalogError != null)
+                  Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.cloud_off_outlined),
+                      title: const Text('Catálogo indisponível'),
+                      subtitle: Text(_catalogError!),
+                      trailing: IconButton(
+                        tooltip: 'Tentar novamente',
+                        onPressed: _loadCatalog,
+                        icon: const Icon(Icons.refresh),
+                      ),
+                    ),
+                  )
+                else
+                  for (final id in catalogIds ?? const <String>[])
+                    _catalogPackageCard(id, canInstallCatalog),
+                if (_service.isConnected &&
+                    _service.libraryManagerAvailable &&
+                    _service.libraryManagerVersion < 2)
+                  const Card(
+                    child: ListTile(
+                      leading: Icon(Icons.system_update_alt),
+                      title: Text('Atualização necessária para pacotes online'),
+                      subtitle: Text(
+                        'Atualize arca_files.py no ESP32. As bibliotecas locais '
+                        'de um único arquivo continuam disponíveis.',
+                      ),
+                    ),
+                  ),
+              ],
+              if (_section == _LibrarySection.phone) ...[
                 const SizedBox(height: 12),
                 Text(
-                  'Pacotes oficiais neste kit',
-                  style: Theme.of(context).textTheme.titleMedium,
+                  'Pacotes oficiais no celular',
+                  style: Theme.of(context).textTheme.titleLarge,
                 ),
-                for (final package in installedRoots)
+                const SizedBox(height: 4),
+                const Text(
+                  'Downloads verificados do catálogo, disponíveis para instalar '
+                  'mesmo sem internet. Seus próprios arquivos ficam no explorador '
+                  'do Editor.',
+                ),
+                const SizedBox(height: 8),
+                for (final package in _downloaded)
                   Card(
                     child: ListTile(
-                      leading: const Icon(Icons.verified_outlined),
+                      leading: const Icon(Icons.download_done_outlined),
                       title: Text(package.name),
-                      subtitle: Text(
-                        '${package.id}@${package.version} • '
-                        '${package.files.join(', ')}',
-                      ),
+                      subtitle: Text('${package.id}@${package.version}'),
                       trailing: IconButton(
-                        tooltip: 'Remover pacote',
-                        onPressed: canInstallCatalog
-                            ? () => _removeCatalogPackage(package)
-                            : null,
+                        tooltip: 'Apagar do celular',
+                        onPressed: busy ? null : () => _deleteDownload(package),
                         icon: const Icon(Icons.delete_outline),
                       ),
                     ),
                   ),
-              ],
-              const SizedBox(height: 28),
-              Text(
-                'Bibliotecas no celular',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 4),
-              const Text(
-                'Importe módulos Python. O aplicativo guarda uma cópia local '
-                'antes de enviá-los ao kit.',
-              ),
-              const SizedBox(height: 12),
-              FilledButton.icon(
-                onPressed: busy ? null : _importLibrary,
-                icon: const Icon(Icons.file_open_outlined),
-                label: const Text('Importar arquivo .py'),
-              ),
-              const SizedBox(height: 8),
-              if (_loadingLocal)
-                const Center(child: CircularProgressIndicator())
-              else if (_local.isEmpty)
-                const Card(
-                  child: ListTile(
-                    leading: Icon(Icons.folder_off_outlined),
-                    title: Text('Nenhuma biblioteca salva'),
-                  ),
-                )
-              else
-                for (final library in _local)
-                  Card(
+                if (_downloaded.isEmpty && !_loadingCatalog)
+                  const Card(
                     child: ListTile(
-                      leading: const Icon(Icons.code),
-                      title: Text(library.name),
-                      subtitle: Text(_size(library.byteLength)),
-                      trailing: Wrap(
-                        spacing: 2,
-                        children: [
-                          IconButton(
-                            tooltip: 'Instalar no kit',
-                            onPressed:
-                                canManage ? () => _install(library) : null,
-                            icon: const Icon(Icons.install_mobile_outlined),
-                          ),
-                          IconButton(
-                            tooltip: 'Excluir do celular',
-                            onPressed:
-                                busy ? null : () => _deleteLocal(library),
-                            icon: const Icon(Icons.delete_outline),
-                          ),
-                        ],
+                      leading: Icon(Icons.cloud_download_outlined),
+                      title: Text('Nenhum pacote baixado do catálogo'),
+                    ),
+                  ),
+              ],
+              if (_section == _LibrarySection.device) ...[
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Instaladas no kit',
+                        style: Theme.of(context).textTheme.titleLarge,
                       ),
                     ),
-                  ),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Instaladas no kit',
-                      style: Theme.of(context).textTheme.titleLarge,
+                    IconButton(
+                      tooltip: 'Atualizar lista',
+                      onPressed: canManage ? _refreshKit : null,
+                      icon: const Icon(Icons.refresh),
                     ),
-                  ),
-                  IconButton(
-                    tooltip: 'Atualizar lista',
-                    onPressed: canManage ? _refreshKit : null,
-                    icon: const Icon(Icons.refresh),
+                  ],
+                ),
+                Text(_service.status),
+                if (busy) ...[
+                  const SizedBox(height: 8),
+                  LinearProgressIndicator(
+                    value: _service.progress > 0 ? _service.progress : null,
                   ),
                 ],
-              ),
-              Text(_service.status),
-              if (busy) ...[
-                const SizedBox(height: 8),
-                LinearProgressIndicator(
-                  value: _service.progress > 0 ? _service.progress : null,
-                ),
-              ],
-              const SizedBox(height: 8),
-              if (!_service.isConnected)
-                const Card(
-                  child: ListTile(
-                    leading: Icon(Icons.bluetooth_disabled),
-                    title: Text('Conecte um kit para instalar bibliotecas'),
+                if (installedRoots.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    'Pacotes oficiais',
+                    style: Theme.of(context).textTheme.titleMedium,
                   ),
-                )
-              else if (!_service.libraryManagerAvailable)
-                const Card(
-                  child: ListTile(
-                    leading: Icon(Icons.system_update_alt),
-                    title: Text('Atualização necessária no kit'),
-                    subtitle: Text(
-                      'Copie arca_files.py para a raiz do ESP32 e reconecte.',
-                    ),
-                  ),
-                )
-              else if (_loadingKit)
-                const Center(child: CircularProgressIndicator())
-              else if (_installed.isEmpty)
-                const Card(
-                  child: ListTile(
-                    leading: Icon(Icons.inventory_2_outlined),
-                    title: Text('Nenhuma biblioteca instalada'),
-                    subtitle: Text('Somente o conteúdo de /lib é exibido.'),
-                  ),
-                )
-              else
-                for (final library in _installed)
-                  Card(
-                    child: ListTile(
-                      leading: const Icon(Icons.memory),
-                      title: Text(library.name),
-                      subtitle:
-                          Text('/lib/${library.name} • ${_size(library.size)}'),
-                      trailing: IconButton(
-                        tooltip: 'Remover do kit',
-                        onPressed:
-                            canManage ? () => _deleteFromKit(library) : null,
-                        icon: const Icon(Icons.delete_outline),
+                  for (final package in installedRoots)
+                    Card(
+                      child: ListTile(
+                        leading: const Icon(Icons.verified_outlined),
+                        title: Text(package.name),
+                        subtitle: Text(
+                          '${package.id}@${package.version} • '
+                          '${package.files.join(', ')}',
+                        ),
+                        trailing: IconButton(
+                          tooltip: 'Remover do dispositivo',
+                          onPressed: canInstallCatalog
+                              ? () => _removeCatalogPackage(package)
+                              : null,
+                          icon: const Icon(Icons.delete_outline),
+                        ),
                       ),
                     ),
-                  ),
-              const SizedBox(height: 12),
-              const Text(
-                'Arquivos como boot.py, main.py e os módulos ARCA não são '
-                'listados nem acessíveis por esta tela.',
-              ),
+                ],
+                const SizedBox(height: 8),
+                if (!_service.isConnected)
+                  const Card(
+                    child: ListTile(
+                      leading: Icon(Icons.bluetooth_disabled),
+                      title: Text('Conecte um kit para instalar bibliotecas'),
+                    ),
+                  )
+                else if (!_service.libraryManagerAvailable)
+                  const Card(
+                    child: ListTile(
+                      leading: Icon(Icons.system_update_alt),
+                      title: Text('Atualização necessária no kit'),
+                      subtitle: Text(
+                        'Copie arca_files.py para a raiz do ESP32 e reconecte.',
+                      ),
+                    ),
+                  )
+                else if (_loadingKit)
+                  const Center(child: CircularProgressIndicator())
+                else if (installedRoots.isEmpty && unmanagedInstalled.isEmpty)
+                  const Card(
+                    child: ListTile(
+                      leading: Icon(Icons.inventory_2_outlined),
+                      title: Text('Nenhuma biblioteca instalada'),
+                      subtitle: Text('Somente o conteúdo de /lib é exibido.'),
+                    ),
+                  )
+                else ...[
+                  if (unmanagedInstalled.isNotEmpty)
+                    Text(
+                      'Arquivos avulsos',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  for (final library in unmanagedInstalled)
+                    Card(
+                      child: ListTile(
+                        leading: const Icon(Icons.memory),
+                        title: Text(library.name),
+                        subtitle: Text(
+                            '/lib/${library.name} • ${_size(library.size)}'),
+                        trailing: IconButton(
+                          tooltip: 'Remover do kit',
+                          onPressed:
+                              canManage ? () => _deleteFromKit(library) : null,
+                          icon: const Icon(Icons.delete_outline),
+                        ),
+                      ),
+                    ),
+                ],
+                const SizedBox(height: 12),
+                const Text(
+                  'Arquivos como boot.py, main.py e os módulos ARCA não são '
+                  'listados nem acessíveis por esta tela.',
+                ),
+              ],
             ],
           );
         },

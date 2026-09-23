@@ -10,6 +10,7 @@ import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 import 'ble_transport.dart';
 import 'input_protocol.dart';
 import 'library_storage.dart';
+import 'program_storage.dart';
 import 'raw_repl.dart';
 
 enum KitState {
@@ -36,6 +37,13 @@ class LibraryUpload {
 
   final String name;
   final Uint8List bytes;
+}
+
+class WorkspaceFile {
+  const WorkspaceFile({required this.name, required this.size});
+
+  final String name;
+  final int size;
 }
 
 /// Estado compartilhado pelo editor, console e lista de kits.
@@ -68,6 +76,8 @@ class MicroPythonREPLService extends ChangeNotifier {
   Stream<String> get onMessage => _messages.stream;
   bool get isConnected => _repl != null && state != KitState.connecting;
   bool get isReady => state == KitState.ready;
+  bool get workspaceManagerAvailable =>
+      libraryManagerAvailable && libraryManagerVersion >= 3;
   int get sessionId => _epoch;
   List<DiscoveredDevice> get devices =>
       _devices.values.toList()..sort((a, b) => b.rssi.compareTo(a.rssi));
@@ -272,9 +282,11 @@ class MicroPythonREPLService extends ChangeNotifier {
       if (epoch == _epoch) {
         _set(
           KitState.ready,
-          libraryManagerAvailable
-              ? 'Kit pronto'
-              : 'Kit pronto — instale arca_files.py para usar bibliotecas',
+          !libraryManagerAvailable
+              ? 'Kit pronto — instale arca_files.py para usar bibliotecas'
+              : libraryManagerVersion < 3
+                  ? 'Kit pronto — atualize arca_files.py para editar arquivos'
+                  : 'Kit pronto',
         );
       }
     } catch (error) {
@@ -316,6 +328,180 @@ class MicroPythonREPLService extends ChangeNotifier {
     } catch (error) {
       // Reconexão sincroniza o REPL; o próximo begin descarta arquivo parcial.
       if (epoch == _epoch) await disconnect(message: 'Falha no envio: $error');
+      return false;
+    }
+  }
+
+  Future<List<WorkspaceFile>> listWorkspaceFiles() async {
+    if (!isReady || !workspaceManagerAvailable) return const [];
+    final epoch = _epoch;
+    final repl = _repl!;
+    progress = 0;
+    _set(KitState.managingLibraries, 'Lendo arquivos do projeto…');
+    try {
+      final decoded = await _jsonCommand(repl, '_arca_files.workspace_list()');
+      if (decoded is! List) {
+        throw const FormatException('Resposta inválida do kit.');
+      }
+      final files = decoded.map((item) {
+        if (item is! Map || item['name'] is! String || item['size'] is! int) {
+          throw const FormatException('Arquivo inválido na resposta do kit.');
+        }
+        return WorkspaceFile(
+          name: item['name'] as String,
+          size: item['size'] as int,
+        );
+      }).toList(growable: false);
+      if (epoch == _epoch) _set(KitState.ready, 'Arquivos atualizados');
+      return files;
+    } catch (error) {
+      if (epoch == _epoch) {
+        _set(KitState.ready, 'Não foi possível ler os arquivos: $error');
+      }
+      return const [];
+    }
+  }
+
+  Future<String?> readWorkspaceFile(WorkspaceFile file) async {
+    if (!isReady || !workspaceManagerAvailable) return null;
+    final nameError = workspaceFileNameError(file.name);
+    if (nameError != null || file.size < 0 || file.size > 65536) {
+      _set(KitState.ready, nameError ?? 'Tamanho de arquivo inválido.');
+      return null;
+    }
+    final epoch = _epoch;
+    final repl = _repl!;
+    final bytes = <int>[];
+    progress = 0;
+    _set(KitState.managingLibraries, 'Abrindo ${file.name}…');
+    try {
+      for (var offset = 0; offset < file.size; offset += 128) {
+        final value = await _jsonCommand(
+          repl,
+          "_arca_files.workspace_read_chunk('${file.name}', $offset, 128)",
+        );
+        if (value is! String || value.length.isOdd) {
+          throw const FormatException('Conteúdo inválido recebido do kit.');
+        }
+        for (var index = 0; index < value.length; index += 2) {
+          bytes.add(int.parse(value.substring(index, index + 2), radix: 16));
+        }
+        if (epoch != _epoch) return null;
+        progress = file.size == 0 ? 1 : bytes.length / file.size;
+        notifyListeners();
+      }
+      if (bytes.length != file.size) {
+        throw const FormatException('Leitura incompleta do arquivo.');
+      }
+      final content = utf8.decode(bytes);
+      if (epoch == _epoch) _set(KitState.ready, '${file.name} aberto');
+      return content;
+    } catch (error) {
+      if (epoch == _epoch) {
+        _set(KitState.ready, 'Não foi possível abrir ${file.name}: $error');
+      }
+      return null;
+    }
+  }
+
+  Future<bool> saveWorkspaceFile(String name, String content) async {
+    if (!isReady || !workspaceManagerAvailable) return false;
+    final nameError = workspaceFileNameError(name);
+    if (nameError != null) {
+      _set(KitState.ready, nameError);
+      return false;
+    }
+    final bytes = utf8.encode(content);
+    if (bytes.length > 65536) {
+      _set(KitState.ready, 'O arquivo deve ter no máximo 64 KiB.');
+      return false;
+    }
+    final epoch = _epoch;
+    final repl = _repl!;
+    progress = 0;
+    _set(KitState.uploading, 'Salvando $name no kit…');
+    try {
+      await _command(
+        repl,
+        "_arca_files.workspace_begin('$name', ${bytes.length}, '${sha256.convert(bytes)}')",
+      );
+      for (var offset = 0; offset < bytes.length; offset += 128) {
+        final chunk = bytes.sublist(offset, min(offset + 128, bytes.length));
+        final hex =
+            chunk.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
+        await _command(repl, "_arca_files.workspace_append('$hex')");
+        if (epoch != _epoch) return false;
+        progress = bytes.isEmpty ? 0.9 : (offset + chunk.length) / bytes.length;
+        notifyListeners();
+      }
+      await _command(repl, '_arca_files.workspace_finish()');
+      if (epoch != _epoch) return false;
+      progress = 1;
+      _set(KitState.ready, '$name salvo e verificado no kit');
+      return true;
+    } catch (error) {
+      if (epoch != _epoch) return false;
+      try {
+        await _command(repl, '_arca_files.workspace_abort()');
+        if (epoch == _epoch) {
+          _set(KitState.ready, 'Envio cancelado sem substituir $name: $error');
+        }
+      } catch (_) {
+        if (epoch == _epoch) {
+          await disconnect(message: 'Falha ao salvar $name: $error');
+        }
+      }
+      return false;
+    }
+  }
+
+  Future<bool> deleteWorkspaceFile(String name) async {
+    if (!isReady ||
+        !workspaceManagerAvailable ||
+        name.toLowerCase() == 'main.py' ||
+        !isValidWorkspaceFileName(name)) {
+      return false;
+    }
+    final epoch = _epoch;
+    final repl = _repl!;
+    _set(KitState.managingLibraries, 'Excluindo $name…');
+    try {
+      await _command(repl, "_arca_files.workspace_delete('$name')");
+      if (epoch != _epoch) return false;
+      _set(KitState.ready, '$name excluído do kit');
+      return true;
+    } catch (error) {
+      if (epoch == _epoch) {
+        _set(KitState.ready, 'Não foi possível excluir $name: $error');
+      }
+      return false;
+    }
+  }
+
+  Future<bool> renameWorkspaceFile(String oldName, String newName) async {
+    if (!isReady ||
+        !workspaceManagerAvailable ||
+        oldName.toLowerCase() == 'main.py' ||
+        !isValidWorkspaceFileName(oldName) ||
+        !isValidWorkspaceFileName(newName) ||
+        oldName.toLowerCase() == newName.toLowerCase()) {
+      return false;
+    }
+    final epoch = _epoch;
+    final repl = _repl!;
+    _set(KitState.managingLibraries, 'Renomeando $oldName…');
+    try {
+      await _command(
+        repl,
+        "_arca_files.workspace_rename('$oldName', '$newName')",
+      );
+      if (epoch != _epoch) return false;
+      _set(KitState.ready, '$oldName renomeado para $newName');
+      return true;
+    } catch (error) {
+      if (epoch == _epoch) {
+        _set(KitState.ready, 'Não foi possível renomear $oldName: $error');
+      }
       return false;
     }
   }
@@ -573,6 +759,10 @@ class MicroPythonREPLService extends ChangeNotifier {
 
   Future<void> runFile() => runCommand(
         "exec(compile(open('user.py').read(), 'user.py', 'exec'), {'__name__': '__main__', 'input': _arca_input})",
+      );
+
+  Future<void> runWorkspaceMain() => runCommand(
+        "_arca_path = _arca_files.workspace_prepare_run(); exec(compile(open(_arca_path).read(), _arca_path, 'exec'), {'__name__': '__main__', '__file__': _arca_path, 'input': _arca_input})",
       );
 
   Future<void> runCommand(String source) async {

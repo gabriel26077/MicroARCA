@@ -14,7 +14,7 @@ void main() {
       await tester.pumpWidget(const MaterialApp(home: MainScreen()));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
-      expect(find.text('Enviar'), findsOneWidget);
+      expect(find.text('Executar'), findsOneWidget);
       tester.view.viewInsets = const FakeViewPadding(bottom: 280);
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);

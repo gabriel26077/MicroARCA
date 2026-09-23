@@ -2,7 +2,6 @@ import 'package:code_text_field/code_text_field.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:micro_arca_app/pages/editor_page.dart';
-import 'package:micro_arca_app/services/library_storage.dart';
 import 'package:micro_arca_app/services/program_storage.dart';
 import 'package:micro_arca_app/widgets/python_indent_modifier.dart';
 
@@ -26,27 +25,14 @@ class MemoryProgramStorage implements ProgramStorage {
   }
 }
 
-class MemoryLibraryStorage implements LibraryStorage {
-  final List<SavedLibrary> libraries = [];
-
-  @override
-  Future<void> deleteLibrary(String name) async {
-    libraries.removeWhere(
-      (library) => library.name.toLowerCase() == name.toLowerCase(),
-    );
-  }
-
-  @override
-  Future<List<SavedLibrary>> loadLibraries() async => List.of(libraries);
-
-  @override
-  Future<void> saveLibrary(SavedLibrary library) async {
-    await deleteLibrary(library.name);
-    libraries.add(library);
-  }
-}
-
 void main() {
+  Future<void> createBlankFile(WidgetTester tester) async {
+    await tester.tap(find.byTooltip('Novo arquivo em branco'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Descartar e criar'));
+    await tester.pumpAndSettle();
+  }
+
   CodeController controller(String text) {
     final code = CodeController(
         text: text,
@@ -81,17 +67,30 @@ void main() {
     expect(code.text, text);
   });
 
-  testWidgets('salva e carrega um programa da biblioteca local',
-      (tester) async {
+  testWidgets('salva e carrega um arquivo do celular', (tester) async {
     final storage = MemoryProgramStorage();
     await tester.pumpWidget(
       MaterialApp(home: Scaffold(body: EditorPage(storage: storage))),
     );
 
-    await tester.tap(find.byTooltip('Salvar programa no celular'));
+    expect(find.byTooltip('Abrir arquivo do celular'), findsOneWidget);
+    expect(find.byTooltip('Salvar arquivo no celular'), findsOneWidget);
+    expect(find.byTooltip('Salvar como no celular'), findsOneWidget);
+    expect(find.byTooltip('Novo arquivo em branco'), findsOneWidget);
+    expect(find.byTooltip('Abrir arquivo do ESP32'), findsOneWidget);
+    expect(find.byTooltip('Salvar arquivo no ESP32'), findsOneWidget);
+    expect(find.byTooltip('Salvar como no ESP32'), findsOneWidget);
+
+    await createBlankFile(tester);
+    await tester.tap(find.byTooltip('Salvar arquivo no celular'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'piscar_led');
-    await tester.tap(find.widgetWithText(FilledButton, 'Salvar'));
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.widgetWithText(FilledButton, 'Salvar'),
+      ),
+    );
     await tester.pumpAndSettle();
 
     expect(storage.programs, hasLength(1));
@@ -101,9 +100,12 @@ void main() {
     tester.widget<CodeField>(find.byType(CodeField)).controller.text =
         'print("alterado")';
     await tester.pump();
-    expect(find.text('piscar_led.py • não salvo'), findsOneWidget);
+    expect(
+      find.text('piscar_led.py • não salvo no celular'),
+      findsOneWidget,
+    );
 
-    await tester.tap(find.byTooltip('Abrir programa salvo'));
+    await tester.tap(find.byTooltip('Abrir arquivo do celular'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ListTile, 'piscar_led.py'));
     await tester.pumpAndSettle();
@@ -113,16 +115,13 @@ void main() {
     expect(find.text('piscar_led.py'), findsOneWidget);
   });
 
-  testWidgets('salva o código atual do editor como biblioteca', (tester) async {
+  testWidgets('salva o código atual como arquivo Python editável',
+      (tester) async {
     final programs = MemoryProgramStorage();
-    final libraries = MemoryLibraryStorage();
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: EditorPage(
-            storage: programs,
-            libraryStorage: libraries,
-          ),
+          body: EditorPage(storage: programs),
         ),
       ),
     );
@@ -132,20 +131,88 @@ void main() {
     editor.controller.text = code;
     await tester.pump();
 
-    await tester.tap(find.byTooltip('Salvar código como biblioteca'));
+    await createBlankFile(tester);
+    tester.widget<CodeField>(find.byType(CodeField)).controller.text = code;
+    await tester.pump();
+    await tester.tap(find.byTooltip('Salvar arquivo no celular'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'minha lib');
-    await tester.tap(find.widgetWithText(FilledButton, 'Salvar'));
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.widgetWithText(FilledButton, 'Salvar'),
+      ),
+    );
     await tester.pump();
-    expect(find.textContaining('Use apenas letras'), findsOneWidget);
+    expect(
+      find.text('Use letras, números e _, começando por letra ou _.'),
+      findsOneWidget,
+    );
 
     await tester.enterText(find.byType(TextField).last, 'minha_lib');
-    await tester.tap(find.widgetWithText(FilledButton, 'Salvar'));
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.widgetWithText(FilledButton, 'Salvar'),
+      ),
+    );
     await tester.pumpAndSettle();
 
-    expect(libraries.libraries, hasLength(1));
-    expect(libraries.libraries.single.name, 'minha_lib.py');
-    expect(libraries.libraries.single.code, code);
-    expect(find.text('minha_lib.py salva como biblioteca.'), findsOneWidget);
+    expect(programs.programs, hasLength(1));
+    expect(programs.programs.single.name, 'minha_lib.py');
+    expect(programs.programs.single.code, code);
+    expect(find.text('minha_lib.py salvo no celular.'), findsOneWidget);
+  });
+
+  testWidgets('salva como e renomeia arquivo no celular', (tester) async {
+    final storage = MemoryProgramStorage()
+      ..programs.add(
+        SavedProgram(
+          name: 'helper.py',
+          code: 'VALUE = 1\n',
+          updatedAt: DateTime(2026),
+        ),
+      );
+    await tester.pumpWidget(
+      MaterialApp(home: Scaffold(body: EditorPage(storage: storage))),
+    );
+
+    await tester.tap(find.byTooltip('Abrir arquivo do celular'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ListTile, 'helper.py'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Salvar como no celular'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'copia.py');
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.widgetWithText(FilledButton, 'Salvar'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(storage.programs.map((item) => item.name),
+        containsAll(['helper.py', 'copia.py']));
+
+    await tester.tap(find.byTooltip('Abrir arquivo do celular'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Ações de copia.py'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Renomear'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'renomeado.py');
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlertDialog).last,
+        matching: find.widgetWithText(FilledButton, 'Renomear'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(storage.programs.map((item) => item.name),
+        containsAll(['helper.py', 'renomeado.py']));
+    expect(
+        storage.programs.map((item) => item.name), isNot(contains('copia.py')));
   });
 }
