@@ -8,6 +8,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 
 import 'ble_transport.dart';
+import 'input_protocol.dart';
+import 'library_storage.dart';
 import 'raw_repl.dart';
 
 enum KitState {
@@ -16,8 +18,24 @@ enum KitState {
   connecting,
   ready,
   uploading,
+  managingLibraries,
   running,
+  waitingForInput,
   stopping,
+}
+
+class InstalledLibrary {
+  const InstalledLibrary({required this.name, required this.size});
+
+  final String name;
+  final int size;
+}
+
+class LibraryUpload {
+  const LibraryUpload({required this.name, required this.bytes});
+
+  final String name;
+  final Uint8List bytes;
 }
 
 /// Estado compartilhado pelo editor, console e lista de kits.
@@ -39,10 +57,13 @@ class MicroPythonREPLService extends ChangeNotifier {
   Future<void>? _activeRun;
   Future<void> _closing = Future<void>.value();
   int _epoch = 0;
+  int _inputRequestVersion = 0;
   KitState state = KitState.disconnected;
   String status = 'Selecione seu kit na aba Kits';
   DiscoveredDevice? device;
   double progress = 0;
+  bool libraryManagerAvailable = false;
+  int libraryManagerVersion = 0;
 
   Stream<String> get onMessage => _messages.stream;
   bool get isConnected => _repl != null && state != KitState.connecting;
@@ -228,7 +249,34 @@ class MicroPythonREPLService extends ChangeNotifier {
       await repl.synchronize();
       final check = await repl.execute('import arca_runtime as _arca');
       if (!check.succeeded) throw StateError(check.error);
-      if (epoch == _epoch) _set(KitState.ready, 'Kit pronto');
+      final filesCheck = await repl.execute('import arca_files as _arca_files');
+      libraryManagerAvailable = filesCheck.succeeded;
+      if (libraryManagerAvailable) {
+        final version = await _jsonCommand(
+          repl,
+          "getattr(_arca_files, 'VERSION', 1)",
+        );
+        libraryManagerVersion = version is int ? version : 1;
+      } else {
+        libraryManagerVersion = 0;
+      }
+      final inputCheck = await repl.execute(
+        "if '_arca_builtin_input' not in globals(): _arca_builtin_input = input\n"
+        "def _arca_input(_prompt=''):\n"
+        " print(_prompt, end='')\n"
+        " print('\\x1eARCA_INPUT\\x1f', end='')\n"
+        " return _arca_builtin_input()\n"
+        'input = _arca_input',
+      );
+      if (!inputCheck.succeeded) throw StateError(inputCheck.error);
+      if (epoch == _epoch) {
+        _set(
+          KitState.ready,
+          libraryManagerAvailable
+              ? 'Kit pronto'
+              : 'Kit pronto — instale arca_files.py para usar bibliotecas',
+        );
+      }
     } catch (error) {
       if (epoch == _epoch) {
         await disconnect(message: 'Não foi possível conectar: $error');
@@ -277,8 +325,254 @@ class MicroPythonREPLService extends ChangeNotifier {
     if (!result.succeeded) throw StateError(result.error);
   }
 
+  Future<List<InstalledLibrary>> listLibraries() async {
+    if (!isReady || !libraryManagerAvailable) return const [];
+    final epoch = _epoch;
+    final repl = _repl!;
+    progress = 0;
+    _set(KitState.managingLibraries, 'Lendo bibliotecas do kit…');
+    try {
+      final decoded = await _jsonCommand(repl, '_arca_files.list_files()');
+      if (decoded is! List) {
+        throw const FormatException('Resposta inválida do kit.');
+      }
+      final libraries = decoded.map((item) {
+        if (item is! Map || item['name'] is! String || item['size'] is! int) {
+          throw const FormatException(
+              'Biblioteca inválida na resposta do kit.');
+        }
+        return InstalledLibrary(
+          name: item['name'] as String,
+          size: item['size'] as int,
+        );
+      }).toList(growable: false);
+      if (epoch == _epoch) _set(KitState.ready, 'Bibliotecas atualizadas');
+      return libraries;
+    } catch (error) {
+      if (epoch == _epoch) {
+        await disconnect(
+          message: 'Não foi possível ler as bibliotecas: $error',
+        );
+      }
+      return const [];
+    }
+  }
+
+  Future<bool> installLibrary(String name, String content) async {
+    if (!isReady || !libraryManagerAvailable) return false;
+    final nameError = libraryNameError(name);
+    if (nameError != null) {
+      _set(KitState.ready, nameError);
+      return false;
+    }
+    final bytes = utf8.encode(content);
+    if (bytes.length > 65536) {
+      _set(KitState.ready, 'A biblioteca deve ter no máximo 64 KiB.');
+      return false;
+    }
+    final epoch = _epoch;
+    final repl = _repl!;
+    progress = 0;
+    _set(KitState.managingLibraries, 'Instalando $name…');
+    try {
+      final filesystem =
+          await _jsonCommand(repl, '_arca_files.filesystem_info()');
+      if (filesystem is! Map || filesystem['free'] is! int) {
+        throw const FormatException('Espaço livre não informado pelo kit.');
+      }
+      const safetyMargin = 4096;
+      if ((filesystem['free'] as int) < bytes.length + safetyMargin) {
+        if (epoch == _epoch) {
+          _set(
+            KitState.ready,
+            'Espaço insuficiente no kit para instalar $name.',
+          );
+        }
+        return false;
+      }
+      await _command(
+        repl,
+        "_arca_files.begin('$name', ${bytes.length}, '${sha256.convert(bytes)}')",
+      );
+      for (var offset = 0; offset < bytes.length; offset += 128) {
+        final chunk = bytes.sublist(offset, min(offset + 128, bytes.length));
+        final hex =
+            chunk.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
+        await _command(repl, "_arca_files.append('$hex')");
+        if (epoch != _epoch) return false;
+        progress = (offset + chunk.length) / bytes.length;
+        notifyListeners();
+      }
+      await _command(repl, '_arca_files.finish()');
+      if (epoch != _epoch) return false;
+      progress = 1;
+      _set(KitState.ready, '$name instalada e verificada');
+      return true;
+    } catch (error) {
+      if (epoch == _epoch) {
+        await disconnect(message: 'Falha ao instalar $name: $error');
+      }
+      return false;
+    }
+  }
+
+  Future<bool> installLibrariesAtomically(List<LibraryUpload> uploads) async {
+    if (!isReady || !libraryManagerAvailable || uploads.isEmpty) return false;
+    if (libraryManagerVersion < 2) {
+      _set(
+        KitState.ready,
+        'Atualize arca_files.py no kit para instalar pacotes do catálogo.',
+      );
+      return false;
+    }
+    final names = <String>{};
+    var totalBytes = 0;
+    for (final upload in uploads) {
+      final error = libraryNameError(upload.name);
+      if (error != null || !names.add(upload.name.toLowerCase())) {
+        _set(KitState.ready, error ?? 'Pacote contém arquivo duplicado.');
+        return false;
+      }
+      if (upload.bytes.length > 65536) {
+        _set(KitState.ready, '${upload.name} excede o limite de 64 KiB.');
+        return false;
+      }
+      totalBytes += upload.bytes.length;
+    }
+    final epoch = _epoch;
+    final repl = _repl!;
+    progress = 0;
+    _set(KitState.managingLibraries, 'Preparando pacote no kit…');
+    try {
+      final filesystem =
+          await _jsonCommand(repl, '_arca_files.filesystem_info()');
+      if (filesystem is! Map || filesystem['free'] is! int) {
+        throw const FormatException('Espaço livre não informado pelo kit.');
+      }
+      const safetyMargin = 4096;
+      if ((filesystem['free'] as int) < totalBytes + safetyMargin) {
+        _set(KitState.ready, 'Espaço insuficiente no kit para este pacote.');
+        return false;
+      }
+      await _command(repl, '_arca_files.transaction_begin()');
+      var sent = 0;
+      for (final upload in uploads) {
+        final digest = sha256.convert(upload.bytes).toString();
+        await _command(
+          repl,
+          "_arca_files.transaction_stage('${upload.name}', "
+          "${upload.bytes.length}, '$digest')",
+        );
+        for (var offset = 0; offset < upload.bytes.length; offset += 128) {
+          final chunk = upload.bytes.sublist(
+            offset,
+            min(offset + 128, upload.bytes.length),
+          );
+          final hex = chunk
+              .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+              .join();
+          await _command(repl, "_arca_files.append('$hex')");
+          if (epoch != _epoch) return false;
+          sent += chunk.length;
+          progress = totalBytes == 0 ? 0.9 : sent / totalBytes * 0.9;
+          notifyListeners();
+        }
+        await _command(repl, '_arca_files.transaction_finish_file()');
+      }
+      _set(KitState.managingLibraries, 'Confirmando pacote…');
+      await _command(repl, '_arca_files.transaction_commit()');
+      if (epoch != _epoch) return false;
+      progress = 1;
+      _set(KitState.ready, 'Pacote instalado e verificado');
+      return true;
+    } catch (error) {
+      if (epoch != _epoch) return false;
+      try {
+        await _command(repl, '_arca_files.abort()');
+        if (epoch == _epoch) {
+          _set(
+            KitState.ready,
+            'Instalação cancelada sem substituir o pacote: $error',
+          );
+        }
+      } catch (_) {
+        if (epoch == _epoch) {
+          await disconnect(message: 'Falha na instalação do pacote: $error');
+        }
+      }
+      return false;
+    }
+  }
+
+  Future<bool> deleteLibrariesAtomically(List<String> names) async {
+    if (!isReady ||
+        !libraryManagerAvailable ||
+        libraryManagerVersion < 2 ||
+        names.isEmpty ||
+        names.any((name) => !isValidLibraryName(name))) {
+      return false;
+    }
+    final unique = names.toSet().toList()..sort();
+    final epoch = _epoch;
+    final repl = _repl!;
+    progress = 0;
+    _set(KitState.managingLibraries, 'Removendo pacote…');
+    try {
+      final encoded = jsonEncode(unique);
+      await _command(repl, '_arca_files.delete_many($encoded)');
+      if (epoch != _epoch) return false;
+      progress = 1;
+      _set(KitState.ready, 'Pacote removido do kit');
+      return true;
+    } catch (error) {
+      if (epoch == _epoch) {
+        _set(KitState.ready, 'Não foi possível remover o pacote: $error');
+      }
+      return false;
+    }
+  }
+
+  Future<bool> deleteLibrary(String name) async {
+    if (!isReady || !libraryManagerAvailable || !isValidLibraryName(name)) {
+      return false;
+    }
+    final epoch = _epoch;
+    final repl = _repl!;
+    progress = 0;
+    _set(KitState.managingLibraries, 'Removendo $name…');
+    try {
+      await _command(repl, "_arca_files.delete('$name')");
+      if (epoch != _epoch) return false;
+      _set(KitState.ready, '$name removida do kit');
+      return true;
+    } catch (error) {
+      if (epoch == _epoch) {
+        await disconnect(message: 'Falha ao remover $name: $error');
+      }
+      return false;
+    }
+  }
+
+  Future<Object?> _jsonCommand(RawRepl repl, String expression) async {
+    final output = StringBuffer();
+    final result = await repl.execute(
+      "import json; print('ARCA_JSON:' + json.dumps($expression))",
+      onOutput: output.write,
+    );
+    if (!result.succeeded) throw StateError(result.error);
+    const marker = 'ARCA_JSON:';
+    final text = output.toString();
+    final start = text.indexOf(marker);
+    if (start < 0) throw const FormatException('Marcador ausente.');
+    final valueStart = start + marker.length;
+    final lineEnd = text.indexOf('\n', valueStart);
+    final encoded =
+        text.substring(valueStart, lineEnd < 0 ? text.length : lineEnd).trim();
+    return jsonDecode(encoded);
+  }
+
   Future<void> runFile() => runCommand(
-        "exec(compile(open('user.py').read(), 'user.py', 'exec'), {'__name__': '__main__'})",
+        "exec(compile(open('user.py').read(), 'user.py', 'exec'), {'__name__': '__main__', 'input': _arca_input})",
       );
 
   Future<void> runCommand(String source) async {
@@ -291,6 +585,7 @@ class MicroPythonREPLService extends ChangeNotifier {
       );
       return;
     }
+    _inputRequestVersion = 0;
     _set(KitState.running, 'Executando…');
     final operation = _run(source, _epoch);
     _activeRun = operation;
@@ -299,11 +594,21 @@ class MicroPythonREPLService extends ChangeNotifier {
   }
 
   Future<void> _run(String source, int epoch) async {
+    final decoder = InputProtocolDecoder(
+      onOutput: _messages.add,
+      onInputRequested: () {
+        if (epoch == _epoch &&
+            (state == KitState.running || state == KitState.waitingForInput)) {
+          _inputRequestVersion++;
+          _set(KitState.waitingForInput, 'Aguardando resposta…');
+        }
+      },
+    );
     try {
       final result = await _repl!.execute(
         source,
         timeout: null,
-        onOutput: _messages.add,
+        onOutput: decoder.add,
       );
       if (epoch != _epoch) return;
       final stopped = state == KitState.stopping &&
@@ -318,11 +623,48 @@ class MicroPythonREPLService extends ChangeNotifier {
       );
     } catch (error) {
       if (epoch == _epoch) await disconnect(message: 'Erro na sessão: $error');
+    } finally {
+      decoder.close();
+    }
+  }
+
+  Future<bool> sendInputLine(String value) async {
+    if (state != KitState.waitingForInput ||
+        _activeRun == null ||
+        _repl == null) {
+      return false;
+    }
+    final bytes = utf8.encode(value);
+    if (bytes.length > 1024 || bytes.any((byte) => byte < 32 || byte == 127)) {
+      _set(
+        KitState.waitingForInput,
+        'A resposta deve ter uma linha e no máximo 1024 bytes.',
+      );
+      return false;
+    }
+    final epoch = _epoch;
+    final requestVersion = _inputRequestVersion;
+    try {
+      await _repl!.sendInputLine(value);
+      if (epoch == _epoch &&
+          state == KitState.waitingForInput &&
+          requestVersion == _inputRequestVersion) {
+        _set(KitState.running, 'Executando…');
+      }
+      return epoch == _epoch;
+    } catch (error) {
+      if (epoch == _epoch) {
+        await disconnect(message: 'Não foi possível enviar a resposta: $error');
+      }
+      return false;
     }
   }
 
   Future<void> stop() async {
-    if (state != KitState.running || _activeRun == null) return;
+    if ((state != KitState.running && state != KitState.waitingForInput) ||
+        _activeRun == null) {
+      return;
+    }
     final epoch = _epoch;
     final operation = _activeRun!;
     _set(KitState.stopping, 'Interrompendo…');
@@ -348,6 +690,9 @@ class MicroPythonREPLService extends ChangeNotifier {
     _transport = null;
     _connection = null;
     _activeRun = null;
+    _inputRequestVersion = 0;
+    libraryManagerAvailable = false;
+    libraryManagerVersion = 0;
     device = null;
     _set(KitState.disconnected, message);
     _closing = Future.wait<void>([

@@ -2,6 +2,7 @@ import 'package:code_text_field/code_text_field.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:micro_arca_app/pages/editor_page.dart';
+import 'package:micro_arca_app/services/library_storage.dart';
 import 'package:micro_arca_app/services/program_storage.dart';
 import 'package:micro_arca_app/widgets/python_indent_modifier.dart';
 
@@ -22,6 +23,26 @@ class MemoryProgramStorage implements ProgramStorage {
   Future<void> saveProgram(SavedProgram program) async {
     await deleteProgram(program.name);
     programs.add(program);
+  }
+}
+
+class MemoryLibraryStorage implements LibraryStorage {
+  final List<SavedLibrary> libraries = [];
+
+  @override
+  Future<void> deleteLibrary(String name) async {
+    libraries.removeWhere(
+      (library) => library.name.toLowerCase() == name.toLowerCase(),
+    );
+  }
+
+  @override
+  Future<List<SavedLibrary>> loadLibraries() async => List.of(libraries);
+
+  @override
+  Future<void> saveLibrary(SavedLibrary library) async {
+    await deleteLibrary(library.name);
+    libraries.add(library);
   }
 }
 
@@ -90,5 +111,41 @@ void main() {
     final editor = tester.widget<CodeField>(find.byType(CodeField));
     expect(editor.controller.text, originalCode);
     expect(find.text('piscar_led.py'), findsOneWidget);
+  });
+
+  testWidgets('salva o código atual do editor como biblioteca', (tester) async {
+    final programs = MemoryProgramStorage();
+    final libraries = MemoryLibraryStorage();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: EditorPage(
+            storage: programs,
+            libraryStorage: libraries,
+          ),
+        ),
+      ),
+    );
+
+    final editor = tester.widget<CodeField>(find.byType(CodeField));
+    const code = 'def somar(a, b):\n    return a + b\n';
+    editor.controller.text = code;
+    await tester.pump();
+
+    await tester.tap(find.byTooltip('Salvar código como biblioteca'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'minha lib');
+    await tester.tap(find.widgetWithText(FilledButton, 'Salvar'));
+    await tester.pump();
+    expect(find.textContaining('Use apenas letras'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).last, 'minha_lib');
+    await tester.tap(find.widgetWithText(FilledButton, 'Salvar'));
+    await tester.pumpAndSettle();
+
+    expect(libraries.libraries, hasLength(1));
+    expect(libraries.libraries.single.name, 'minha_lib.py');
+    expect(libraries.libraries.single.code, code);
+    expect(find.text('minha_lib.py salva como biblioteca.'), findsOneWidget);
   });
 }

@@ -93,6 +93,64 @@ void main() {
     expect((await running).error, contains('KeyboardInterrupt'));
   });
 
+  test('envia uma resposta ao stdin sem encerrar a execução atual', () async {
+    transport.onWrite = (bytes) {
+      if (bytes.last == 4) {
+        transport.controller.add([79, 75, ...utf8.encode('número: ')]);
+      } else if (bytes.last == 13) {
+        transport.controller.add([
+          ...utf8.encode('7\r\n14\r\n'),
+          4,
+          4,
+          62,
+        ]);
+      }
+    };
+    final output = StringBuffer();
+    final running = repl.execute(
+      'v = int(input("número: ")); print(2 * v)',
+      timeout: null,
+      onOutput: output.write,
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    await repl.sendInputLine('7');
+
+    expect(transport.writes.last, [...utf8.encode('7'), 13]);
+    expect((await running).succeeded, isTrue);
+    expect(output.toString(), 'número: 7\r\n14\r\n');
+  });
+
+  test('permite linha vazia como resposta', () async {
+    transport.onWrite = (bytes) {
+      if (bytes.last == 4) {
+        transport.controller.add([79, 75]);
+      } else if (bytes.last == 13) {
+        transport.controller.add([4, 4, 62]);
+      }
+    };
+    final running = repl.execute('input()', timeout: null);
+    await Future<void>.delayed(Duration.zero);
+
+    await repl.sendInputLine('');
+
+    expect(transport.writes.last, [13]);
+    expect((await running).succeeded, isTrue);
+  });
+
+  test('recusa resposta fora de uma execução ou com quebra de linha', () async {
+    await expectLater(repl.sendInputLine('7'), throwsStateError);
+
+    transport.onWrite = (bytes) {
+      if (bytes.last == 4) transport.controller.add([79, 75]);
+    };
+    final running = repl.execute('input()', timeout: null);
+    await Future<void>.delayed(Duration.zero);
+    await expectLater(repl.sendInputLine('duas\nlinhas'), throwsArgumentError);
+    transport.controller.add([4, 4, 62]);
+    await running;
+  });
+
   test('recusa operações simultâneas sem misturar respostas', () async {
     transport.onWrite = (_) => transport.controller.add([79, 75]);
     final first = repl.execute('while True: pass', timeout: null);

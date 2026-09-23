@@ -13,12 +13,13 @@ compatível com sua placa e flash. A referência das APIs usadas é o MicroPytho
 com substituição atômica. Esta implementação ainda precisa ser validada no kit
 físico e nos Androids que serão usados em aula.
 
-Copie estes quatro arquivos para a **raiz** da placa:
+Copie estes cinco arquivos para a **raiz** da placa:
 
 1. `arca_ble.py`
 2. `arca_runtime.py`
-3. `main.py`
-4. `boot.py` — copie por último, depois das dependências.
+3. `arca_files.py`
+4. `main.py`
+5. `boot.py` — copie por último, depois das dependências.
 
 Não copie a pasta `tests`. `wifi_config.json`, `buffer_config.json` e o antigo
 `buffer_conf.json` não são mais usados. A versão anterior do firmware permanece
@@ -32,6 +33,7 @@ Exemplo a partir da raiz do repositório, com
 ```sh
 mpremote connect /dev/ttyUSB0 fs cp embedded/arca_ble.py :arca_ble.py
 mpremote connect /dev/ttyUSB0 fs cp embedded/arca_runtime.py :arca_runtime.py
+mpremote connect /dev/ttyUSB0 fs cp embedded/arca_files.py :arca_files.py
 mpremote connect /dev/ttyUSB0 fs cp embedded/main.py :main.py
 mpremote connect /dev/ttyUSB0 fs cp embedded/boot.py :boot.py
 mpremote connect /dev/ttyUSB0 reset
@@ -68,6 +70,27 @@ flutter run
    do Android. Um kit aceita apenas um celular por vez.
 4. No editor, toque **Enviar**, aguarde a verificação e toque **Executar**.
 5. Veja a saída em **Console**. **Parar** também está disponível nessa aba.
+6. Em **Kits → Bibliotecas**, importe arquivos `.py` do celular e instale-os
+   em `/lib`. Essa tela nunca lista ou altera os arquivos da raiz da placa.
+7. A mesma tela consulta o catálogo oficial em
+   `https://libs-microarca.traceedu.com.br/v1/catalog.json`. Pacotes e todas as
+   dependências são baixados e verificados antes de o ESP32 ser modificado.
+
+Pacotes do catálogo com vários arquivos exigem `arca_files.py` versão 2. Essa
+versão prepara todos os módulos em arquivos ocultos e só os substitui depois que
+o lote inteiro foi recebido e teve tamanho e SHA-256 conferidos. Uma falha antes
+do commit preserva as versões anteriores. A instalação manual de um único módulo
+continua compatível com a API anterior.
+
+Quando o programa chama `input()`, o Console muda para **Aguardando resposta**.
+Digite a resposta no campo inferior e toque em enviar. Linhas vazias também são
+aceitas. O campo volta a ficar bloqueado enquanto o programa estiver executando,
+até que outro `input()` seja alcançado. Por exemplo:
+
+```python
+v = int(input("Digite um número: "))
+print(2 * v)
+```
 
 Conectar ou reconectar interrompe a execução anterior para sincronizar o REPL.
 O app não reenvia nem executa um programa automaticamente depois de uma queda.
@@ -102,6 +125,8 @@ Valide também:
 - Testar segundo celular tentando conectar ao mesmo kit.
 - Repetir com motores e alimentação real para verificar resets elétricos.
 - Abrir teclado, alternar abas e voltar ao app após bloquear a tela.
+- Executar o exemplo com `input()`, responder `7`, conferir `14` e repetir com
+  duas perguntas consecutivas e com uma resposta vazia.
 
 ## Protocolo e limites
 
@@ -114,6 +139,9 @@ Valide também:
   repete o hello enquanto a assinatura de TX está sendo habilitada pelo Android.
 - Depois do hello, o app usa o **raw REPL nativo**: Ctrl+A, código, Ctrl+D,
   `OK`, stdout + `0x04`, stderr + `0x04`, `>`. Ctrl+C interrompe uma execução.
+  Para `input()`, o app instala ao conectar um wrapper temporário no contexto do
+  raw REPL. Um marcador reservado informa que o programa está esperando e a
+  resposta é enviada diretamente ao `stdin` pelo mesmo canal `dupterm`.
   A saída esperada é texto UTF-8; bytes de controle do raw REPL não podem ser
   usados como saída binária arbitrária. Soft/hard reset encerra BLE e exige reconexão.
 - MTU solicitado: 247, com fallback 23. RX envia no máximo 128 bytes por escrita;
@@ -122,6 +150,9 @@ Valide também:
   `user.py.part`, verifica tamanho e SHA-256, relê e verifica o arquivo e só então
   faz `rename` para `user.py`. Esse limite de transferência não garante que um
   programa de 64 KiB caiba na memória disponível durante a execução.
+- Catálogo: no máximo 1 MiB, HTTPS sem redirecionamentos e cache validado por
+  ETag. Cada módulo remoto mantém o limite de 64 KiB e é conferido byte a byte
+  pelo tamanho e SHA-256 publicados antes da transferência BLE.
 - RX: 2 KiB de buffer; TX: 16 KiB. Excesso de saída encerra a conexão explicitamente,
   em vez de perder bytes do protocolo silenciosamente. Evite `print()` sem pausa.
   Consulte `arca_ble.last_error` pela serial para diagnosticar.

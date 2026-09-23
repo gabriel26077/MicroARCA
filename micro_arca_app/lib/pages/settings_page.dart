@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'libraries_page.dart';
 import '../services/micropython_repl_service.dart';
 
 class SettingsPage extends StatelessWidget {
@@ -64,6 +65,24 @@ class SettingsPage extends StatelessWidget {
                         label: Text(scanning ? 'Parar busca' : 'Procurar kits'),
                       ),
                   ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.local_library_outlined),
+                title: const Text('Bibliotecas'),
+                subtitle: Text(
+                  service.isConnected
+                      ? 'Catálogo oficial, instalação e remoção no kit'
+                      : 'Consulte o catálogo e organize arquivos .py',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const LibrariesPage(),
+                  ),
                 ),
               ),
             ),

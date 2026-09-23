@@ -17,12 +17,19 @@ class UploadTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location('arca_runtime_test', SOURCE)
         self.runtime = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.runtime)
-        self.sync = patch.object(self.runtime.os, 'sync', lambda: None)
+        self.sync = patch.object(
+            self.runtime.os, 'sync', lambda: None, create=True
+        )
         self.sync.start()
+        # LittleFS substitui o destino com rename; no Windows, os.replace
+        # reproduz essa semântica para o teste executado no computador.
+        self.rename = patch.object(self.runtime.os, 'rename', os.replace)
+        self.rename.start()
         Path('user.py').write_bytes(b'previous program')
 
     def tearDown(self):
         self.runtime.abort()
+        self.rename.stop()
         self.sync.stop()
         os.chdir(self.previous)
         self.directory.cleanup()

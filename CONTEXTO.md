@@ -1,5 +1,57 @@
 # Retomada da sessão — Projeto ARCA
 
+> **Catálogo oficial de bibliotecas — 23/09/2026:** a IDE passou a consumir
+> `https://libs-microarca.traceedu.com.br/v1/catalog.json` com o User-Agent da
+> aplicação, HTTPS sem redirecionamentos, limites de tamanho, ETag e cache do
+> último catálogo validado. URLs ficam restritas à mesma origem e ao caminho
+> exato do pacote. O cliente resolve versões exatas, dependências, ciclos e
+> conflitos; baixa e confere tamanho/SHA-256 de todos os bytes antes de usar BLE.
+> Instalações ficam registradas por dispositivo, distinguindo pacotes principais
+> de dependências para preservar módulos ainda utilizados. `arca_files.py` agora
+> possui API versão 2 para preparar vários módulos e fazer commit/rollback em
+> lote; kits com a versão anterior continuam aceitando a instalação manual de
+> um arquivo, mas pedem atualização para pacotes online. O catálogo ainda não é
+> assinado digitalmente e a interface informa que as bibliotecas executam código
+> no ESP32.
+> Validação final: 35 testes Flutter e 28 testes Python passaram;
+> `flutter analyze --no-pub` não encontrou problemas e `git diff --check` passou.
+> O APK debug foi compilado, instalado e aberto no Moto g34. No aparelho real, o
+> catálogo público foi carregado pela rede e o download de `oled-pintor@1.0.0`
+> armazenou no cache validado tanto `lib_oled_pintor.py` quanto a dependência
+> `ssd1306.py`, além do ETag. Para instalar pacotes online no ESP32 físico ainda é
+> preciso substituir uma vez o `arca_files.py` da placa pela API versão 2 desta
+> branch e reiniciar/reconectar o kit.
+
+> **Entrada interativa no Console — 22/09/2026:** o aplicativo passou a suportar
+> `input()` durante a execução por BLE. Ao conectar, ele instala no contexto do
+> raw REPL um wrapper temporário que preserva o prompt e emite um marcador de
+> controle; esse marcador é removido da saída visível e muda o estado para
+> **Aguardando resposta**. O campo do Console então envia uma única linha ao
+> `stdin` via `dupterm`, inclusive vazia, sem finalizar a operação raw REPL.
+> Fragmentação do marcador entre pacotes BLE, várias perguntas consecutivas e
+> interrupção com Ctrl+C são tratadas. Não foi necessário alterar o firmware.
+> Os 27 testes Flutter passaram, `flutter analyze --no-pub` ficou sem problemas
+> e o APK debug foi compilado, instalado e aberto no Moto g34. A interação real
+> com `input()` no ESP32 ainda precisa do teste de bancada do usuário. Os testes
+> Python não foram repetidos porque não há Python no PATH deste Windows; nenhum
+> arquivo de firmware foi alterado nesta etapa.
+
+> **Gerenciador local de bibliotecas — 22/09/2026:** foi criada a branch local
+> `feature/library-manager` a partir do commit estável `9b86d17`. O firmware agora
+> possui `arca_files.py`, API transacional limitada a módulos `.py` em `/lib`, com
+> validação de nome, limite de 64 KiB, SHA-256, releitura, arquivo parcial e exclusão
+> restrita. O app ganhou a tela **Kits → Bibliotecas**, armazenamento local, seletor
+> nativo de documentos Android, instalação, atualização, listagem e remoção por BLE.
+> O editor também ganhou **Salvar código como biblioteca**: o conteúdo atual entra
+> diretamente no acervo interno e, com o kit conectado, oferece **Instalar** no aviso
+> de sucesso, sem depender do explorador de arquivos do Android.
+> Arquivos da raiz não são listados nem aceitos pela API. Passaram 23 testes Python,
+> 20 testes Flutter, `flutter analyze` e a compilação Kotlin/Android; o APK foi gerado,
+> instalado e aberto no Moto g34. Para habilitar a função na placa atual ainda é
+> necessário copiar `embedded/arca_files.py` uma vez para a raiz do ESP32 e reconectar.
+> O catálogo web, pacotes com vários arquivos e dependências continuam para fases
+> posteriores. As alterações desta branch ainda não foram commitadas nem enviadas.
+
 > **Atualização em 22/09/2026:** o ambiente Windows foi configurado com Flutter
 > 3.47.5, JDK 21, Android SDK e NDK 28.2.13676358. O APK Android foi compilado,
 > instalado e executado em um Moto g34 5G. A conexão BLE com o ESP32 físico e
@@ -117,10 +169,15 @@ consultado no histórico Git; não deve ser reintroduzido na migração BLE.
   mensagens fragmentadas/agrupadas, decodifica UTF-8 incrementalmente e separa
   stdout/stderr. Serializa operações e invalida o canal após timeout/falha para
   não reutilizar uma sessão dessincronizada. Helpers têm timeout; programas do
-  usuário podem executar indefinidamente até interrupção/desconexão.
+  usuário podem executar indefinidamente até interrupção/desconexão. Durante uma
+  execução ativa, também permite enviar uma linha validada diretamente ao stdin.
+- `lib/services/input_protocol.dart`: reconhece e remove da saída o marcador de
+  `input()`, mesmo dividido entre pacotes, avisando o serviço para liberar o campo
+  de resposta apenas quando o programa estiver realmente aguardando uma linha.
 - `lib/services/micropython_repl_service.dart`: estados disconnected/scanning/
-  connecting/ready/uploading/running/stopping, permissões, busca, handshake,
-  transferência, execução e interrupção. IDs de sessão impedem callbacks antigos
+  connecting/ready/uploading/managingLibraries/running/waitingForInput/stopping,
+  permissões, busca, handshake, transferência, execução e interrupção. IDs de
+  sessão impedem callbacks antigos
   de alterar uma conexão nova. Criação do BLE é tardia, após permissão. Cancelar
   enquanto a permissão está aberta não deve iniciar uma busca posteriormente.
 - `pages/settings_page.dart`: lista de kits, procurar/conectar/cancelar/desconectar.
@@ -129,7 +186,8 @@ consultado no histórico Git; não deve ser reintroduzido na migração BLE.
 - `widgets/python_indent_modifier.dart`: indentação Python no editor.
 - `pages/console_page.dart`: fluxo contínuo UTF-8, sem bolhas por pacote ou
   timestamps por fragmento, atualização em lotes de 100 ms, limite de 64 mil
-  caracteres e rolagem que respeita a leitura do usuário.
+  caracteres e rolagem que respeita a leitura do usuário. O campo alterna entre
+  comandos e respostas de `input()` de acordo com o estado confirmado pelo kit.
 - Ajustes de SafeArea, navegação, teclado e disposição de botões em telas pequenas.
 - `android/.../MainActivity.kt`: MethodChannel `arca/bluetooth_permissions`.
   Android 12+ usa scan/connect; anteriores usam localização para descoberta BLE.

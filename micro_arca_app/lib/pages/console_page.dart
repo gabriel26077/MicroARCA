@@ -58,11 +58,16 @@ class _ConsolePageState extends State<ConsolePage> {
   }
 
   void _send() {
-    if (!_service.isReady || _command.text.trim().isEmpty) return;
-    final source = _command.text;
+    final value = _command.text;
+    if (_service.state == KitState.waitingForInput) {
+      _command.clear();
+      unawaited(_service.sendInputLine(value));
+      return;
+    }
+    if (!_service.isReady || value.trim().isEmpty) return;
     _command.clear();
-    _append('\n>>> $source\n');
-    unawaited(_service.runCommand(source));
+    _append('\n>>> $value\n');
+    unawaited(_service.runCommand(value));
   }
 
   @override
@@ -124,44 +129,55 @@ class _ConsolePageState extends State<ConsolePage> {
           const SizedBox(height: 8),
           ListenableBuilder(
             listenable: _service,
-            builder: (context, _) => Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  _service.status,
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _command,
-                        enabled: _service.isReady,
-                        autocorrect: false,
-                        enableSuggestions: false,
-                        decoration: const InputDecoration(
-                          hintText: 'Ex.: print("Olá!")',
+            builder: (context, _) {
+              final waiting = _service.state == KitState.waitingForInput;
+              final canType = _service.isReady || waiting;
+              final canStop = _service.state == KitState.running || waiting;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    _service.status,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _command,
+                          enabled: canType,
+                          autocorrect: false,
+                          enableSuggestions: false,
+                          textInputAction: TextInputAction.send,
+                          decoration: InputDecoration(
+                            hintText: waiting
+                                ? 'Resposta para o programa'
+                                : _service.isReady
+                                    ? 'Ex.: print("Olá!")'
+                                    : _service.state == KitState.running ||
+                                            _service.state == KitState.stopping
+                                        ? 'Programa executando…'
+                                        : 'Conecte um kit para usar o console',
+                          ),
+                          onSubmitted: (_) => _send(),
                         ),
-                        onSubmitted: (_) => _send(),
                       ),
-                    ),
-                    IconButton(
-                      tooltip: 'Enviar comando',
-                      onPressed: _service.isReady ? _send : null,
-                      icon: const Icon(Icons.send),
-                    ),
-                    IconButton(
-                      tooltip: 'Interromper programa',
-                      onPressed: _service.state == KitState.running
-                          ? _service.stop
-                          : null,
-                      icon: const Icon(Icons.stop),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+                      IconButton(
+                        tooltip: waiting ? 'Enviar resposta' : 'Enviar comando',
+                        onPressed: canType ? _send : null,
+                        icon: const Icon(Icons.send),
+                      ),
+                      IconButton(
+                        tooltip: 'Interromper programa',
+                        onPressed: canStop ? _service.stop : null,
+                        icon: const Icon(Icons.stop),
+                      ),
+                    ],
+                  ),
+                ],
+              );
+            },
           ),
         ],
       ),

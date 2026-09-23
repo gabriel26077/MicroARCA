@@ -1,0 +1,311 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:crypto/crypto.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:micro_arca_app/services/library_catalog.dart';
+import 'package:micro_arca_app/services/library_catalog_client.dart';
+import 'package:micro_arca_app/services/package_installation_storage.dart';
+
+final catalogUri = Uri.parse(officialCatalogUri);
+
+Map<String, Object?> packageJson({
+  required String id,
+  String version = '1.0.0',
+  List<Map<String, String>> dependencies = const [],
+  String? fileName,
+  String? digest,
+  int? size,
+  String? url,
+}) {
+  final name = fileName ?? '${id.replaceAll('-', '_')}.py';
+  return {
+    'id': id,
+    'name': id,
+    'version': version,
+    'description': 'Biblioteca $id',
+    'author': 'ARCA',
+    'license': 'MIT',
+    'license_url': 'packages/$id/$version/LICENSE',
+    'compatibility': {
+      'micropython': '>=1.24',
+      'boards': ['ESP32_GENERIC'],
+    },
+    'dependencies': dependencies,
+    'files': [
+      {
+        'name': name,
+        'url': url ?? 'packages/$id/$version/$name',
+        'size': size ?? 0,
+        'sha256': digest ?? sha256.convert(const <int>[]).toString(),
+      },
+    ],
+  };
+}
+
+Uint8List catalogBytes(List<Map<String, Object?>> packages) =>
+    Uint8List.fromList(
+      utf8.encode(jsonEncode({'schema': 1, 'packages': packages})),
+    );
+
+class MemoryCatalogCache implements CatalogCache {
+  CachedCatalog? catalog;
+  final files = <String, Uint8List>{};
+
+  @override
+  Future<CachedCatalog?> loadCatalog() async => catalog;
+  @override
+  Future<void> saveCatalog(CachedCatalog value) async => catalog = value;
+  @override
+  Future<Uint8List?> loadFile(String digest) async => files[digest];
+  @override
+  Future<void> saveFile(String digest, Uint8List bytes) async {
+    files[digest] = bytes;
+  }
+}
+
+class FakeCatalogTransport implements CatalogTransport {
+  final responses = <Object>[];
+  final requests = <({Uri uri, Map<String, String> headers, int maximum})>[];
+
+  @override
+  Future<CatalogResponse> get(
+    Uri uri, {
+    required Map<String, String> headers,
+    required int maximumBytes,
+  }) async {
+    requests.add((uri: uri, headers: Map.of(headers), maximum: maximumBytes));
+    final response = responses.removeAt(0);
+    if (response is Exception) throw response;
+    return response as CatalogResponse;
+  }
+}
+
+void main() {
+  group('catálogo', () {
+    test('resolve dependências na ordem de instalação', () {
+      final catalog = LibraryCatalog.parse(
+        catalogBytes([
+          packageJson(
+            id: 'oled-pintor',
+            fileName: 'lib_oled_pintor.py',
+            dependencies: [
+              {'id': 'ssd1306', 'version': '1.0.0'},
+            ],
+          ),
+          packageJson(id: 'ssd1306'),
+        ]),
+        catalogUri,
+      );
+      final resolved = catalog.resolve(const [
+        CatalogDependency(id: 'oled-pintor', version: '1.0.0'),
+      ]);
+      expect(resolved.map((item) => item.id), ['ssd1306', 'oled-pintor']);
+    });
+
+    test('rejeita dependência ausente, ciclo e conflito de versões', () {
+      expect(
+        () => LibraryCatalog.parse(
+          catalogBytes([
+            packageJson(
+              id: 'a',
+              dependencies: [
+                {'id': 'missing', 'version': '1.0.0'},
+              ],
+            ),
+          ]),
+          catalogUri,
+        ),
+        throwsA(isA<PackageResolutionException>()),
+      );
+      expect(
+        () => LibraryCatalog.parse(
+          catalogBytes([
+            packageJson(
+              id: 'a',
+              dependencies: [
+                {'id': 'b', 'version': '1.0.0'},
+              ],
+            ),
+            packageJson(
+              id: 'b',
+              dependencies: [
+                {'id': 'a', 'version': '1.0.0'},
+              ],
+            ),
+          ]),
+          catalogUri,
+        ),
+        throwsA(isA<PackageResolutionException>()),
+      );
+      final conflict = LibraryCatalog.parse(
+        catalogBytes([
+          packageJson(
+            id: 'a',
+            dependencies: [
+              {'id': 'shared', 'version': '1.0.0'},
+            ],
+          ),
+          packageJson(
+            id: 'b',
+            dependencies: [
+              {'id': 'shared', 'version': '2.0.0'},
+            ],
+          ),
+          packageJson(id: 'shared'),
+          packageJson(id: 'shared', version: '2.0.0'),
+        ]),
+        catalogUri,
+      );
+      expect(
+        () => conflict.resolve(const [
+          CatalogDependency(id: 'a', version: '1.0.0'),
+          CatalogDependency(id: 'b', version: '1.0.0'),
+        ]),
+        throwsA(isA<PackageResolutionException>()),
+      );
+    });
+
+    test('rejeita caminho externo, traversal, nome reservado e arquivo grande',
+        () {
+      for (final package in [
+        packageJson(id: 'unsafe', url: 'https://evil.test/x.py'),
+        packageJson(id: 'unsafe', url: '../unsafe.py'),
+        packageJson(id: 'unsafe', fileName: 'boot.py'),
+        packageJson(id: 'unsafe', size: maximumLibraryBytes + 1),
+      ]) {
+        expect(
+          () => LibraryCatalog.parse(catalogBytes([package]), catalogUri),
+          throwsFormatException,
+        );
+      }
+    });
+  });
+
+  group('cliente', () {
+    test('usa ETag e reutiliza somente catálogo validado após 304', () async {
+      final transport = FakeCatalogTransport();
+      final cache = MemoryCatalogCache();
+      final bytes = catalogBytes([packageJson(id: 'sensor')]);
+      transport.responses.add(
+        CatalogResponse(
+          statusCode: 200,
+          headers: const {'etag': '"abc"'},
+          bytes: bytes,
+        ),
+      );
+      transport.responses.add(
+        CatalogResponse(
+          statusCode: 304,
+          headers: const {},
+          bytes: Uint8List(0),
+        ),
+      );
+      final client = LibraryCatalogClient(transport: transport, cache: cache);
+      expect((await client.fetchCatalog()).fromCache, isFalse);
+      expect((await client.fetchCatalog()).fromCache, isTrue);
+      expect(transport.requests.last.headers['If-None-Match'], '"abc"');
+      expect(transport.requests.first.maximum, maximumCatalogBytes);
+    });
+
+    test('confere bytes e SHA-256 antes de aceitar download', () async {
+      final expected = Uint8List.fromList(utf8.encode('VALUE = 1\n'));
+      final catalog = LibraryCatalog.parse(
+        catalogBytes([
+          packageJson(
+            id: 'sensor',
+            size: expected.length,
+            digest: sha256.convert(expected).toString(),
+          ),
+        ]),
+        catalogUri,
+      );
+      final transport = FakeCatalogTransport()
+        ..responses.add(
+          CatalogResponse(
+            statusCode: 200,
+            headers: const {},
+            bytes: Uint8List.fromList(utf8.encode('CORROMPIDO')),
+          ),
+        );
+      final client = LibraryCatalogClient(
+        transport: transport,
+        cache: MemoryCatalogCache(),
+      );
+      await expectLater(
+        client.download(catalog.packages),
+        throwsA(isA<CatalogIntegrityException>()),
+      );
+    });
+
+    test('usa arquivo offline somente depois de verificar o cache', () async {
+      final expected = Uint8List.fromList(utf8.encode('VALUE = 1\n'));
+      final digest = sha256.convert(expected).toString();
+      final catalog = LibraryCatalog.parse(
+        catalogBytes([
+          packageJson(id: 'sensor', size: expected.length, digest: digest),
+        ]),
+        catalogUri,
+      );
+      final cache = MemoryCatalogCache()..files[digest] = expected;
+      final transport = FakeCatalogTransport();
+      final client = LibraryCatalogClient(transport: transport, cache: cache);
+      final downloaded = await client.download(catalog.packages);
+      expect(downloaded.single.files.single.bytes, expected);
+      expect(transport.requests, isEmpty);
+    });
+
+    test('rejeita redirecionamento', () async {
+      final transport = FakeCatalogTransport()
+        ..responses.add(
+          CatalogResponse(
+            statusCode: 302,
+            headers: const {'location': 'https://other.test/catalog.json'},
+            bytes: Uint8List(0),
+          ),
+        );
+      final client = LibraryCatalogClient(
+        transport: transport,
+        cache: MemoryCatalogCache(),
+      );
+      await expectLater(
+        client.fetchCatalog(),
+        throwsA(isA<CatalogNetworkException>()),
+      );
+    });
+  });
+
+  test('planejamento preserva dependência usada por outro pacote', () {
+    final catalog = LibraryCatalog.parse(
+      catalogBytes([
+        packageJson(
+          id: 'oled',
+          dependencies: [
+            {'id': 'shared', 'version': '1.0.0'},
+          ],
+        ),
+        packageJson(id: 'shared'),
+      ]),
+      catalogUri,
+    );
+    final empty = DevicePackageRegistry.empty('kit-1');
+    final first = const PackageInstallationPlanner().install(
+      catalog: catalog,
+      current: empty,
+      root: catalog.find('oled', '1.0.0')!,
+      filesOnDevice: const {},
+    );
+    final withSharedRoot = const PackageInstallationPlanner().install(
+      catalog: catalog,
+      current: first.nextRegistry,
+      root: catalog.find('shared', '1.0.0')!,
+      filesOnDevice: {'oled.py', 'shared.py'},
+    );
+    final removal = const PackageInstallationPlanner().remove(
+      current: withSharedRoot.nextRegistry,
+      rootId: 'oled',
+    );
+    expect(removal.filesToRemove, ['oled.py']);
+    expect(removal.nextRegistry.packages, contains('shared'));
+  });
+}

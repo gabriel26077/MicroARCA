@@ -111,6 +111,17 @@ class RawRepl {
 
   Future<void> interrupt() => transport.write([3]);
 
+  /// Envia uma linha ao stdin enquanto o código atual continua em execução.
+  Future<void> sendInputLine(String value) async {
+    if (!_busy) throw StateError('Nenhum programa aguardando entrada');
+    if (!_synchronized) throw StateError('REPL precisa ser reconectado');
+    final bytes = utf8.encode(value);
+    if (bytes.length > 1024 || bytes.any((byte) => byte < 32 || byte == 127)) {
+      throw ArgumentError('Resposta inválida ou maior que 1024 bytes');
+    }
+    await transport.write([...bytes, 13]);
+  }
+
   Future<void> close() async {
     _synchronized = false;
     _inbox.fail(StateError('Sessão encerrada'));
