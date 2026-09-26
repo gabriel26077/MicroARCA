@@ -50,6 +50,11 @@ Uint8List blockManifestBytes({
   String id = 'oled-pintor',
   String version = '1.1.0',
   String template = '{TELA}.limpa()\n',
+  Map<String, Object?> field = const {
+    'name': 'TELA',
+    'type': 'identifier',
+    'default': 'tela',
+  },
 }) =>
     Uint8List.fromList(
       utf8.encode(
@@ -63,9 +68,7 @@ Uint8List blockManifestBytes({
               'name': 'Limpar tela',
               'description': 'Apaga o conteúdo da tela.',
               'label': 'limpar tela {TELA}',
-              'fields': [
-                {'name': 'TELA', 'type': 'identifier', 'default': 'tela'},
-              ],
+              'fields': [field],
               'python': {'imports': <String>[], 'template': template},
             },
           ],
@@ -279,6 +282,41 @@ void main() {
         () => LibraryBlockManifest.parse(
           blockManifestBytes(template: '<script>alert(1)</script>\n'),
           catalog.packages.single,
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('aceita campo exibível e rejeita valor fora dos tipos básicos', () {
+      final package = LibraryCatalog.parse(
+        catalogBytes([packageJson(id: 'oled-pintor', version: '1.1.0')]),
+        catalogUri,
+      ).packages.single;
+      final manifest = LibraryBlockManifest.parse(
+        blockManifestBytes(
+          field: const {
+            'name': 'TELA',
+            'type': 'value',
+            'default': 'Olá!',
+          },
+        ),
+        package,
+      );
+      expect(
+        manifest.blocks.single.fields.single.type,
+        LibraryBlockFieldType.value,
+      );
+
+      expect(
+        () => LibraryBlockManifest.parse(
+          blockManifestBytes(
+            field: const {
+              'name': 'TELA',
+              'type': 'value',
+              'default': <String>['não permitido'],
+            },
+          ),
+          package,
         ),
         throwsFormatException,
       );

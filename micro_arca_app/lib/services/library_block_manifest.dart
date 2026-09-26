@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 import 'library_catalog.dart';
 
-enum LibraryBlockFieldType { identifier, integer, text }
+enum LibraryBlockFieldType { identifier, integer, text, value }
 
 class LibraryBlockField {
   const LibraryBlockField({
@@ -315,6 +315,22 @@ List<LibraryBlockField> _parseFields(List<dynamic> values, String blockType) {
           defaultValue: defaultValue,
           minimum: minimum,
           maximum: maximum,
+        ));
+      case 'value':
+        final validDefault = defaultValue is bool ||
+            defaultValue is num &&
+                defaultValue >= -1000000 &&
+                defaultValue <= 1000000 ||
+            defaultValue is String && defaultValue.length <= 240;
+        if (!validDefault ||
+            field.containsKey('min') ||
+            field.containsKey('max')) {
+          throw FormatException('Valor exibível inválido em $blockType.');
+        }
+        fields.add(LibraryBlockField(
+          name: name,
+          type: LibraryBlockFieldType.value,
+          defaultValue: defaultValue!,
         ));
       default:
         throw FormatException('Tipo de campo inválido em $blockType.');

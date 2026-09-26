@@ -82,7 +82,14 @@ class BlocksPage extends StatefulWidget {
   State<BlocksPage> createState() => _BlocksPageState();
 }
 
-enum _BlockAction { duplicate, duplicateChain, toggleDisabled }
+enum _BlockAction {
+  copy,
+  duplicate,
+  duplicateChain,
+  delete,
+  deleteChain,
+  toggleDisabled,
+}
 
 class _BlocksPageState extends State<BlocksPage> {
   final MicroPythonREPLService _service = MicroPythonREPLService();
@@ -107,8 +114,16 @@ class _BlocksPageState extends State<BlocksPage> {
   String? _notice;
   String? _libraryWarning;
   bool _initializing = false;
-  bool _deleteConfirmationOpen = false;
   bool _blockActionsOpen = false;
+  bool _variableShortcutsOpen = false;
+
+  // Bloco copiado. Estático para poder colar em outro projeto enquanto o app
+  // está aberto; some quando o usuário toca no X.
+  static String? _clipboard;
+  static String? _clipboardLabel;
+
+  // Biblioteca do sexto atalho; também vale entre projetos.
+  static String? _lastLibraryPackage;
   final Set<String> _expandedBlockSections = {};
 
   @override
@@ -224,112 +239,128 @@ class _BlocksPageState extends State<BlocksPage> {
           return;
         case 'blockActions':
           final blockId = _bridgeBlockId(envelope);
-          if (_deleteConfirmationOpen || _blockActionsOpen || !mounted) return;
+          if (_blockActionsOpen || !mounted) return;
           final rawLength = envelope['chainLength'];
           final chainLength = rawLength is int && rawLength > 0 ? rawLength : 1;
           final disabled = envelope['disabled'] == true;
+          final below = chainLength - 1;
+          final danger = Theme.of(context).colorScheme.error;
           _blockActionsOpen = true;
           final action = await showModalBottomSheet<_BlockAction>(
             context: context,
             showDragHandle: true,
-            builder: (sheetContext) => SafeArea(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
+            isScrollControlled: true,
+            builder: (sheetContext) {
+              ListTile option(
+                _BlockAction value,
+                IconData icon,
+                String title,
+                String subtitle, {
+                Color? color,
+              }) =>
                   ListTile(
-                    leading: const Icon(Icons.content_copy),
-                    title: const Text('Duplicar bloco'),
-                    subtitle: const Text('Cria uma cópia só deste bloco.'),
-                    onTap: () =>
-                        Navigator.pop(sheetContext, _BlockAction.duplicate),
+                    leading: Icon(icon, color: color),
+                    title: Text(title, style: TextStyle(color: color)),
+                    subtitle: Text(subtitle),
+                    onTap: () => Navigator.pop(sheetContext, value),
+                  );
+              return SafeArea(
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      option(
+                        _BlockAction.copy,
+                        Icons.copy,
+                        'Copiar',
+                        'Guarda o bloco para colar quantas vezes quiser.',
+                      ),
+                      option(
+                        _BlockAction.duplicate,
+                        Icons.control_point_duplicate,
+                        'Duplicar bloco',
+                        'Cria uma cópia só deste bloco.',
+                      ),
+                      option(
+                        _BlockAction.duplicateChain,
+                        Icons.library_add_outlined,
+                        'Duplicar cadeia',
+                        switch (below) {
+                          0 => 'Não há blocos encaixados abaixo deste.',
+                          1 => 'Copia este bloco e o encaixado abaixo dele.',
+                          _ => 'Copia este bloco e os $below encaixados '
+                              'abaixo dele.',
+                        },
+                      ),
+                      option(
+                        _BlockAction.delete,
+                        Icons.delete_outline,
+                        'Deletar bloco',
+                        below == 0
+                            ? 'Apaga só este bloco.'
+                            : 'Apaga só este bloco; os de baixo sobem.',
+                        color: danger,
+                      ),
+                      option(
+                        _BlockAction.deleteChain,
+                        Icons.delete_sweep_outlined,
+                        'Deletar cadeia',
+                        switch (below) {
+                          0 => 'Não há blocos abaixo; apaga só este.',
+                          1 => 'Apaga este bloco e o encaixado abaixo dele.',
+                          _ => 'Apaga este bloco e os $below encaixados '
+                              'abaixo dele.',
+                        },
+                        color: danger,
+                      ),
+                      option(
+                        _BlockAction.toggleDisabled,
+                        disabled
+                            ? Icons.play_circle_outline
+                            : Icons.block_outlined,
+                        disabled ? 'Ativar bloco' : 'Desativar bloco',
+                        disabled
+                            ? 'Volta a executar este bloco.'
+                            : 'Pula este bloco sem apagá-lo. Os blocos de '
+                                'baixo continuam executando.',
+                      ),
+                    ],
                   ),
-                  ListTile(
-                    leading: const Icon(Icons.library_add_outlined),
-                    title: const Text('Duplicar cadeia'),
-                    subtitle: Text(switch (chainLength) {
-                      1 => 'Não há blocos encaixados abaixo deste.',
-                      2 => 'Copia este bloco e o encaixado abaixo dele.',
-                      _ => 'Copia este bloco e os ${chainLength - 1} '
-                          'encaixados abaixo dele.',
-                    }),
-                    onTap: () => Navigator.pop(
-                      sheetContext,
-                      _BlockAction.duplicateChain,
-                    ),
-                  ),
-                  ListTile(
-                    leading: Icon(
-                      disabled
-                          ? Icons.play_circle_outline
-                          : Icons.block_outlined,
-                    ),
-                    title: Text(disabled ? 'Ativar bloco' : 'Desativar bloco'),
-                    subtitle: Text(
-                      disabled
-                          ? 'Volta a executar este bloco.'
-                          : 'Pula este bloco sem apagá-lo. Os blocos de '
-                              'baixo continuam executando.',
-                    ),
-                    onTap: () => Navigator.pop(
-                        sheetContext, _BlockAction.toggleDisabled),
-                  ),
-                ],
-              ),
-            ),
+                ),
+              );
+            },
           );
           _blockActionsOpen = false;
+          final id = jsonEncode(blockId);
           final script = switch (action) {
             null => null,
-            _BlockAction.duplicate => 'window.microArca.duplicateBlock('
-                '${jsonEncode(blockId)}, false);',
-            _BlockAction.duplicateChain => 'window.microArca.duplicateBlock('
-                '${jsonEncode(blockId)}, true);',
+            _BlockAction.copy => 'window.microArca.copyBlock($id);',
+            _BlockAction.duplicate =>
+              'window.microArca.duplicateBlock($id, false);',
+            _BlockAction.duplicateChain =>
+              'window.microArca.duplicateBlock($id, true);',
+            _BlockAction.delete => 'window.microArca.deleteBlock($id, false);',
+            _BlockAction.deleteChain =>
+              'window.microArca.deleteBlock($id, true);',
             _BlockAction.toggleDisabled => 'window.microArca.setBlockDisabled('
-                '${jsonEncode(blockId)}, ${jsonEncode(!disabled)});',
+                '$id, ${jsonEncode(!disabled)});',
           };
           if (script != null) await _controller?.runJavaScript(script);
           return;
-        case 'confirmDelete':
-          final blockId = _bridgeBlockId(envelope);
-          final rawCount = envelope['blockCount'];
-          final blockCount = rawCount is int && rawCount > 0 ? rawCount : 1;
-          if (_deleteConfirmationOpen) {
-            await _resolveBlockDeletion(blockId, false);
-            return;
+        case 'copied':
+          final state = envelope['state'];
+          final label = envelope['label'];
+          if (state is! String ||
+              utf8.encode(state).length > maxBlockWorkspaceBytes ||
+              jsonDecode(state) is! Map) {
+            throw const FormatException('Cópia inválida.');
           }
-          _deleteConfirmationOpen = true;
-          final confirmed = mounted
-              ? await showDialog<bool>(
-                    context: context,
-                    builder: (dialogContext) => AlertDialog(
-                      title: Text(
-                        blockCount == 1 ? 'Apagar bloco?' : 'Apagar blocos?',
-                      ),
-                      content: Text(
-                        blockCount == 1
-                            ? 'Deseja apagar esse bloco?'
-                            : 'Deseja apagar esses $blockCount blocos '
-                                'encaixados?',
-                      ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(dialogContext, false),
-                          child: const Text('Cancelar'),
-                        ),
-                        FilledButton(
-                          style: FilledButton.styleFrom(
-                            backgroundColor: Colors.red.shade700,
-                          ),
-                          onPressed: () => Navigator.pop(dialogContext, true),
-                          child: const Text('Apagar'),
-                        ),
-                      ],
-                    ),
-                  ) ??
-                  false
-              : false;
-          _deleteConfirmationOpen = false;
-          await _resolveBlockDeletion(blockId, confirmed);
+          if (mounted) {
+            setState(() {
+              _clipboard = state;
+              _clipboardLabel = label is String ? label : null;
+            });
+          }
           return;
         case 'state':
           final snapshot = BlockProgramSnapshot.fromBridgeMessage(message);
@@ -369,10 +400,11 @@ class _BlocksPageState extends State<BlocksPage> {
     return blockId;
   }
 
-  Future<void> _resolveBlockDeletion(String blockId, bool confirmed) async {
+  Future<void> _paste() async {
+    final clipboard = _clipboard;
+    if (clipboard == null) return;
     await _controller?.runJavaScript(
-      'window.microArca.resolveDelete('
-      '${jsonEncode(blockId)}, ${jsonEncode(confirmed)});',
+      'window.microArca.pasteBlock(${jsonEncode(clipboard)});',
     );
   }
 
@@ -396,6 +428,49 @@ class _BlocksPageState extends State<BlocksPage> {
         numberOnly: numberOnly,
       ),
     );
+  }
+
+  Future<void> _showVariableQuickPicker() async {
+    await _refreshProgramState();
+    if (!mounted) return;
+    final variable = await showDialog<BlockVariable>(
+      context: context,
+      builder: (_) => _VariableQuickPickerDialog(variables: _variables),
+    );
+    if (variable == null || !mounted) return;
+    setState(() => _variableShortcutsOpen = false);
+    await _controller?.runJavaScript(
+      'window.microArca.addVariableBlock('
+      '${jsonEncode('variables_get_dynamic')}, '
+      '${jsonEncode(variable.name)}, ${jsonEncode(variable.type.bridgeName)});',
+    );
+  }
+
+  Future<void> _showVariableAssignmentPicker() async {
+    final variable = await _chooseVariable(numberOnly: false);
+    if (variable == null || !mounted) return;
+    setState(() => _variableShortcutsOpen = false);
+    await _controller?.runJavaScript(
+      'window.microArca.addVariableBlock('
+      '${jsonEncode('variables_set_dynamic')}, '
+      '${jsonEncode(variable.name)}, ${jsonEncode(variable.type.bridgeName)});',
+    );
+  }
+
+  void _openShortcutSection(String id) {
+    if (id == 'variables') {
+      setState(() => _variableShortcutsOpen = !_variableShortcutsOpen);
+      return;
+    }
+    if (_variableShortcutsOpen) {
+      setState(() => _variableShortcutsOpen = false);
+    }
+    unawaited(_showBlockMenu(focusSection: id));
+  }
+
+  void _openVariableDrawer() {
+    setState(() => _variableShortcutsOpen = false);
+    unawaited(_showBlockMenu(focusSection: 'variables'));
   }
 
   void _scheduleSave(String workspace) {
@@ -480,45 +555,95 @@ class _BlocksPageState extends State<BlocksPage> {
     }
   }
 
-  Future<void> _showBlockMenu() async {
+  void _rememberLibrary(String packageId) {
+    if (_lastLibraryPackage == packageId) return;
+    setState(() => _lastLibraryPackage = packageId);
+  }
+
+  LibraryBlockManifest? get _lastLibrary {
+    final id = _lastLibraryPackage;
+    if (id == null) return null;
+    for (final manifest in _libraryManifests) {
+      if (manifest.packageId == id) return manifest;
+    }
+    return null;
+  }
+
+  /// [focusSection] abre a gaveta só com essa seção aberta e rola até ela;
+  /// [focusLibrary] faz o mesmo com um pacote dentro de Bibliotecas.
+  Future<void> _showBlockMenu({
+    String? focusSection,
+    String? focusLibrary,
+  }) async {
+    if (focusSection != null || focusLibrary != null) {
+      _expandedBlockSections
+        ..clear()
+        ..add(focusLibrary != null ? _librarySectionId : focusSection!);
+    }
+    final focusKey = GlobalKey();
+    var scrolled = false;
     final type = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (sheetContext) => SafeArea(
-        child: FractionallySizedBox(
-          heightFactor: 0.82,
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
-            children: [
-              Text('Adicionar bloco',
-                  style: Theme.of(sheetContext).textTheme.titleLarge),
-              const SizedBox(height: 12),
-              for (final section in _blockSections)
-                _BlockSectionTile(
-                  section: section,
+      builder: (sheetContext) {
+        if (!scrolled && (focusSection != null || focusLibrary != null)) {
+          scrolled = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            final target = focusKey.currentContext;
+            if (target != null) {
+              Scrollable.ensureVisible(
+                target,
+                duration: const Duration(milliseconds: 250),
+                curve: Curves.easeOut,
+              );
+            }
+          });
+        }
+        return SafeArea(
+          child: FractionallySizedBox(
+            heightFactor: 0.82,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+              children: [
+                Text('Adicionar bloco',
+                    style: Theme.of(sheetContext).textTheme.titleLarge),
+                const SizedBox(height: 12),
+                for (final section in _blockSections)
+                  _BlockSectionTile(
+                    key: section.id == focusSection ? focusKey : null,
+                    section: section,
+                    initiallyExpanded: _expandedBlockSections.contains(
+                      section.id,
+                    ),
+                    onExpansionChanged: (expanded) =>
+                        _rememberBlockSection(section.id, expanded),
+                    onBlockSelected: (type) =>
+                        Navigator.pop(sheetContext, type),
+                  ),
+                _LibraryBlocksDrawer(
+                  manifests: _libraryManifests,
                   initiallyExpanded: _expandedBlockSections.contains(
-                    section.id,
+                    _librarySectionId,
                   ),
                   onExpansionChanged: (expanded) =>
-                      _rememberBlockSection(section.id, expanded),
+                      _rememberBlockSection(_librarySectionId, expanded),
+                  expandedPackage: focusLibrary,
+                  focusKey: focusLibrary != null ? focusKey : null,
+                  onPackageOpened: _rememberLibrary,
                   onBlockSelected: (type) => Navigator.pop(sheetContext, type),
                 ),
-              _LibraryBlocksDrawer(
-                manifests: _libraryManifests,
-                initiallyExpanded: _expandedBlockSections.contains(
-                  _librarySectionId,
-                ),
-                onExpansionChanged: (expanded) =>
-                    _rememberBlockSection(_librarySectionId, expanded),
-                onBlockSelected: (type) => Navigator.pop(sheetContext, type),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
     if (type == null || !mounted) return;
+    if (type == 'variables_get_dynamic') {
+      await _showVariableQuickPicker();
+      return;
+    }
     if (_variableBlockTypes.contains(type)) {
       final variable = await _chooseVariable(
         numberOnly: type == 'microarca_variable_change',
@@ -757,6 +882,8 @@ class _BlocksPageState extends State<BlocksPage> {
         final running = _service.state == KitState.running ||
             _service.state == KitState.waitingForInput ||
             _service.state == KitState.stopping;
+        final busy = _service.state == KitState.uploading ||
+            _service.state == KitState.managingLibraries;
         return Scaffold(
           backgroundColor: const Color(0xfff4fafb),
           body: SafeArea(
@@ -895,11 +1022,95 @@ class _BlocksPageState extends State<BlocksPage> {
                     ),
                   ),
                 ),
+                if (_controller != null)
+                  Positioned(
+                    left: 17,
+                    top: 76,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        for (final id in _shortcutSections)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 7),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                _FloatingControl(
+                                  compact: true,
+                                  tooltip: id == 'variables'
+                                      ? 'Ações de variáveis'
+                                      : _sectionById(id).title,
+                                  icon: _sectionById(id).icon,
+                                  color: _sectionById(id).color,
+                                  onPressed: () => _openShortcutSection(id),
+                                ),
+                                if (id == 'variables' &&
+                                    _variableShortcutsOpen) ...[
+                                  const SizedBox(width: 7),
+                                  _FloatingControl(
+                                    compact: true,
+                                    tooltip: 'Usar variável',
+                                    icon: Icons.attach_money,
+                                    color: _sectionById(id).color,
+                                    onPressed: () => unawaited(
+                                      _showVariableQuickPicker(),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 7),
+                                  _FloatingControl(
+                                    compact: true,
+                                    tooltip: 'Declarar ou atribuir variável',
+                                    icon: Icons.arrow_back,
+                                    color: _sectionById(id).color,
+                                    onPressed: () => unawaited(
+                                      _showVariableAssignmentPicker(),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 7),
+                                  _FloatingControl(
+                                    compact: true,
+                                    tooltip: 'Abrir gaveta de variáveis',
+                                    icon: Icons.more_horiz,
+                                    color: _sectionById(id).color,
+                                    onPressed: _openVariableDrawer,
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        if (_lastLibrary case final library?)
+                          _FloatingControl(
+                            compact: true,
+                            tooltip: library.categoryName,
+                            icon: Icons.widgets_outlined,
+                            color: _manifestColor(library.color),
+                            onPressed: () => _showBlockMenu(
+                              focusLibrary: library.packageId,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                // Mesmo indicador do projeto Python: aparece enquanto o
+                // projeto é enviado ao kit.
+                if (busy)
+                  Positioned(
+                    left: 12,
+                    right: 12,
+                    top: 66,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: _service.progress,
+                        minHeight: 5,
+                      ),
+                    ),
+                  ),
                 if (_notice != null || _libraryWarning != null)
                   Positioned(
                     left: 12,
                     right: 12,
-                    top: 68,
+                    top: 78,
                     child: Material(
                       color: Theme.of(context).colorScheme.errorContainer,
                       borderRadius: BorderRadius.circular(12),
@@ -909,6 +1120,43 @@ class _BlocksPageState extends State<BlocksPage> {
                           _notice ?? _libraryWarning!,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                  ),
+                if (_clipboard != null && _controller != null)
+                  Positioned(
+                    left: 12,
+                    right: 12,
+                    bottom: 84,
+                    child: Center(
+                      child: Material(
+                        color: const Color(0xf2ffffff),
+                        elevation: 4,
+                        borderRadius: BorderRadius.circular(28),
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(6, 4, 2, 4),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Tooltip(
+                                message: _clipboardLabel ?? 'Bloco copiado',
+                                child: FilledButton.icon(
+                                  onPressed: _paste,
+                                  icon: const Icon(Icons.content_paste),
+                                  label: const Text('Colar'),
+                                ),
+                              ),
+                              IconButton(
+                                tooltip: 'Parar de colar',
+                                onPressed: () => setState(() {
+                                  _clipboard = null;
+                                  _clipboardLabel = null;
+                                }),
+                                icon: const Icon(Icons.close),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -959,11 +1207,17 @@ class _FloatingControl extends StatelessWidget {
     required this.tooltip,
     required this.icon,
     required this.onPressed,
+    this.color,
+    this.compact = false,
   });
 
   final String tooltip;
   final IconData icon;
   final VoidCallback onPressed;
+  final Color? color;
+
+  /// 70% do tamanho normal, para a coluna de atalhos.
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -974,7 +1228,17 @@ class _FloatingControl extends StatelessWidget {
       child: IconButton(
         tooltip: tooltip,
         onPressed: onPressed,
-        icon: Icon(icon),
+        icon: Icon(icon, color: color),
+        // No Material 3 o tamanho vem do style; constraints é ignorado.
+        style: compact
+            ? IconButton.styleFrom(
+                fixedSize: const Size(34, 34),
+                minimumSize: const Size(34, 34),
+                padding: EdgeInsets.zero,
+                iconSize: 22,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              )
+            : null,
       ),
     );
   }
@@ -1051,12 +1315,18 @@ class _BlockSection {
 
 const _librarySectionId = 'libraries';
 
+/// Seções com atalho fixo no canvas, na ordem da coluna.
+const _shortcutSections = ['pins', 'variables', 'control', 'logic', 'math'];
+
+_BlockSection _sectionById(String id) =>
+    _blockSections.firstWhere((section) => section.id == id);
+
 const _blockSections = [
   _BlockSection(
     id: 'control',
     title: 'Controle',
     summary: 'Repetir para sempre, se, se/senão, esperar',
-    icon: Icons.all_inclusive,
+    icon: Icons.call_split,
     color: Color(0xff1565c0),
     blocks: [
       _BlockEntry('microarca_forever', Icons.all_inclusive,
@@ -1128,23 +1398,28 @@ const _blockSections = [
     blocks: [
       _BlockEntry(
           'text', Icons.text_fields, 'Texto', 'Cria um valor de texto.'),
+      _BlockEntry('microarca_text_join', Icons.add_link, 'Juntar valores',
+          'Combina texto, número ou valor lógico em um único texto.'),
       _BlockEntry('text_print', Icons.terminal, 'Mostrar no console',
-          'Exibe um valor no console do MicroARCA.'),
+          'Exibe texto, número ou valor lógico no console do MicroARCA.'),
     ],
   ),
   _BlockSection(
     id: 'variables',
     title: 'Variáveis',
-    summary: 'Definir, usar e alterar variáveis',
+    summary: 'Declarar/atribuir, usar e somar',
     icon: Icons.data_object,
     color: Color(0xffa55b80),
     blocks: [
-      _BlockEntry('variables_set_dynamic', Icons.edit_outlined,
-          'Definir variável', 'Guarda um valor em uma variável.'),
+      _BlockEntry(
+          'variables_set_dynamic',
+          Icons.arrow_back,
+          'Declarar/atribuir  (x ← valor)',
+          'Guarda um valor na variável. Se ela não existe, é criada.'),
       _BlockEntry('variables_get_dynamic', Icons.data_object, 'Usar variável',
           'Fornece o valor atual de uma variável.'),
       _BlockEntry('microarca_variable_change', Icons.exposure_plus_1,
-          'Alterar variável', 'Soma um valor à variável.'),
+          'Somar à variável', 'Soma um número ao valor atual da variável.'),
     ],
   ),
   _BlockSection(
@@ -1164,6 +1439,7 @@ const _blockSections = [
 
 class _BlockSectionTile extends StatelessWidget {
   const _BlockSectionTile({
+    super.key,
     required this.section,
     required this.initiallyExpanded,
     required this.onExpansionChanged,
@@ -1210,13 +1486,19 @@ class _LibraryBlocksDrawer extends StatelessWidget {
     required this.manifests,
     required this.initiallyExpanded,
     required this.onExpansionChanged,
+    required this.onPackageOpened,
     required this.onBlockSelected,
+    this.expandedPackage,
+    this.focusKey,
   });
 
   final List<LibraryBlockManifest> manifests;
   final bool initiallyExpanded;
   final ValueChanged<bool> onExpansionChanged;
+  final ValueChanged<String> onPackageOpened;
   final ValueChanged<String> onBlockSelected;
+  final String? expandedPackage;
+  final Key? focusKey;
 
   @override
   Widget build(BuildContext context) {
@@ -1250,8 +1532,15 @@ class _LibraryBlocksDrawer extends StatelessWidget {
             : [
                 for (final manifest in manifests)
                   _LibraryBlockPackage(
+                    key:
+                        manifest.packageId == expandedPackage ? focusKey : null,
                     manifest: manifest,
-                    onBlockSelected: onBlockSelected,
+                    initiallyExpanded: manifest.packageId == expandedPackage,
+                    onOpened: () => onPackageOpened(manifest.packageId),
+                    onBlockSelected: (type) {
+                      onPackageOpened(manifest.packageId);
+                      onBlockSelected(type);
+                    },
                   ),
               ],
       ),
@@ -1261,20 +1550,26 @@ class _LibraryBlocksDrawer extends StatelessWidget {
 
 class _LibraryBlockPackage extends StatelessWidget {
   const _LibraryBlockPackage({
+    super.key,
     required this.manifest,
+    required this.initiallyExpanded,
+    required this.onOpened,
     required this.onBlockSelected,
   });
 
   final LibraryBlockManifest manifest;
+  final bool initiallyExpanded;
+  final VoidCallback onOpened;
   final ValueChanged<String> onBlockSelected;
 
   @override
   Widget build(BuildContext context) {
     final color = _manifestColor(manifest.color);
     return ExpansionTile(
-      key: PageStorageKey(
-        'library-blocks-${manifest.packageId}-${manifest.packageVersion}',
-      ),
+      initiallyExpanded: initiallyExpanded,
+      onExpansionChanged: (expanded) {
+        if (expanded) onOpened();
+      },
       leading: CircleAvatar(
         backgroundColor: color,
         foregroundColor: Colors.white,
@@ -1302,6 +1597,108 @@ String _variableTypeLabel(BlockVariableType type) => switch (type) {
       BlockVariableType.text => 'Texto',
       BlockVariableType.boolean => 'Lógico',
     };
+
+IconData _variableTypeIcon(BlockVariableType type) => switch (type) {
+      BlockVariableType.number => Icons.numbers,
+      BlockVariableType.text => Icons.text_fields,
+      BlockVariableType.boolean => Icons.toggle_on_outlined,
+    };
+
+class _VariableQuickPickerDialog extends StatefulWidget {
+  const _VariableQuickPickerDialog({required this.variables});
+
+  final List<BlockVariable> variables;
+
+  @override
+  State<_VariableQuickPickerDialog> createState() =>
+      _VariableQuickPickerDialogState();
+}
+
+class _VariableQuickPickerDialogState
+    extends State<_VariableQuickPickerDialog> {
+  final TextEditingController _searchController = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  List<BlockVariable> get _filteredVariables {
+    final query = _query.trim().toLowerCase();
+    final variables = [...widget.variables]
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    if (query.isEmpty) return variables;
+    return variables
+        .where((variable) => variable.name.toLowerCase().contains(query))
+        .toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final variables = _filteredVariables;
+    return AlertDialog(
+      title: const Text('Usar variável'),
+      content: SizedBox(
+        width: double.maxFinite,
+        height: 360,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextField(
+              controller: _searchController,
+              decoration: const InputDecoration(
+                labelText: 'Pesquisar variável',
+                hintText: 'Digite o nome',
+                prefixIcon: Icon(Icons.search),
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (value) => setState(() => _query = value),
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: variables.isEmpty
+                  ? Center(
+                      child: Text(
+                        widget.variables.isEmpty
+                            ? 'Ainda não há variáveis no programa.\n'
+                                'Use o botão … para criar uma.'
+                            : 'Nenhuma variável encontrada.',
+                        textAlign: TextAlign.center,
+                      ),
+                    )
+                  : ListView.separated(
+                      itemCount: variables.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        final variable = variables[index];
+                        return ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: _sectionById('variables').color,
+                            foregroundColor: Colors.white,
+                            child: Icon(_variableTypeIcon(variable.type)),
+                          ),
+                          title: Text(variable.name),
+                          subtitle: Text(_variableTypeLabel(variable.type)),
+                          trailing: const Icon(Icons.add),
+                          onTap: () => Navigator.pop(context, variable),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Fechar'),
+        ),
+      ],
+    );
+  }
+}
 
 class _VariableDialog extends StatefulWidget {
   const _VariableDialog({
