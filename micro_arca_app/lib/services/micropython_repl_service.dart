@@ -10,7 +10,7 @@ import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 import 'ble_transport.dart';
 import 'input_protocol.dart';
 import 'library_storage.dart';
-import 'program_storage.dart';
+import 'project_storage.dart';
 import 'raw_repl.dart';
 
 enum KitState {
@@ -46,6 +46,89 @@ class WorkspaceFile {
   final int size;
 }
 
+/// Projeto do app registrado no kit: o que foi enviado ou gravado.
+class KitProjectInfo {
+  const KitProjectInfo({
+    required this.id,
+    required this.name,
+    required this.kind,
+    required this.revision,
+  });
+
+  factory KitProjectInfo.of(ProjectSummary project) => KitProjectInfo(
+        id: project.id,
+        name: project.name,
+        kind: project.kind,
+        revision: project.revision,
+      );
+
+  static KitProjectInfo? fromJson(Object? value) {
+    if (value is! Map ||
+        value['id'] is! String ||
+        value['name'] is! String ||
+        value['revision'] is! int) {
+      return null;
+    }
+    try {
+      return KitProjectInfo(
+        id: value['id'] as String,
+        name: value['name'] as String,
+        kind: ProjectKind.fromId(value['kind']),
+        revision: value['revision'] as int,
+      );
+    } on FormatException {
+      return null;
+    }
+  }
+
+  final String id;
+  final String name;
+  final ProjectKind kind;
+  final int revision;
+
+  Map<String, Object> toJson() => {
+        'id': id,
+        'name': name,
+        'kind': kind.id,
+        'revision': revision,
+      };
+}
+
+/// Programa congelado que o firmware executa ao ligar a placa.
+class AutorunStatus {
+  const AutorunStatus({
+    required this.enabled,
+    required this.installed,
+    required this.tripped,
+    required this.files,
+    this.project,
+  });
+
+  factory AutorunStatus.fromJson(Object? value) {
+    if (value is! Map) throw const FormatException('Estado inválido.');
+    final files = value['files'];
+    return AutorunStatus(
+      enabled: value['enabled'] == true,
+      installed: value['installed'] == true,
+      tripped: value['tripped'] == true,
+      files: files is List ? files.whereType<String>().toList() : const [],
+      project: KitProjectInfo.fromJson(value['project']),
+    );
+  }
+
+  final bool enabled;
+  final bool installed;
+
+  /// Desligado pelo firmware após reinícios seguidos sem estabilizar.
+  final bool tripped;
+  final List<String> files;
+
+  /// Projeto gravado; null se foi gravado por um app sem projetos.
+  final KitProjectInfo? project;
+
+  bool get active => enabled && installed;
+}
+
 /// Estado compartilhado pelo editor, console e lista de kits.
 class MicroPythonREPLService extends ChangeNotifier {
   static final MicroPythonREPLService _instance = MicroPythonREPLService._();
@@ -72,8 +155,11 @@ class MicroPythonREPLService extends ChangeNotifier {
   double progress = 0;
   bool libraryManagerAvailable = false;
   int libraryManagerVersion = 0;
+  AutorunStatus? autorun;
 
   Stream<String> get onMessage => _messages.stream;
+  bool get autorunAvailable =>
+      libraryManagerAvailable && libraryManagerVersion >= 5;
   bool get isConnected => _repl != null && state != KitState.connecting;
   bool get isReady => state == KitState.ready;
   bool get workspaceManagerAvailable =>
@@ -269,6 +355,14 @@ class MicroPythonREPLService extends ChangeNotifier {
         libraryManagerVersion = version is int ? version : 1;
       } else {
         libraryManagerVersion = 0;
+      }
+      if (autorunAvailable) {
+        // Conectar prova que o kit está acessível: zera a proteção contra
+        // reinícios seguidos antes de ler o estado.
+        await _command(repl, '_arca_files.autorun_mark_healthy()');
+        autorun = AutorunStatus.fromJson(
+          await _jsonCommand(repl, '_arca_files.autorun_status()'),
+        );
       }
       final inputCheck = await repl.execute(
         "if '_arca_builtin_input' not in globals(): _arca_builtin_input = input\n"
@@ -501,6 +595,69 @@ class MicroPythonREPLService extends ChangeNotifier {
     } catch (error) {
       if (epoch == _epoch) {
         _set(KitState.ready, 'Não foi possível renomear $oldName: $error');
+      }
+      return false;
+    }
+  }
+
+  /// Registra no kit qual projeto está em /app. O firmware copia esse registro
+  /// ao gravar o programa de inicialização.
+  Future<bool> setKitProject(KitProjectInfo info) async {
+    if (!isReady || !autorunAvailable) return false;
+    final epoch = _epoch;
+    try {
+      // JSON duplamente codificado é um literal de string válido em Python.
+      await _command(
+        _repl!,
+        'import json; _arca_files.project_set('
+        'json.loads(${jsonEncode(jsonEncode(info.toJson()))}))',
+      );
+      return epoch == _epoch;
+    } catch (error) {
+      if (epoch == _epoch) {
+        _set(KitState.ready, 'Não foi possível registrar o projeto: $error');
+      }
+      return false;
+    }
+  }
+
+  /// Congela o projeto salvo em /app para rodar sempre que a placa ligar.
+  Future<bool> enableAutorun() => _changeAutorun(
+        '_arca_files.autorun_enable()',
+        working: 'Gravando programa de inicialização…',
+        done: 'Programa gravado: roda sempre que o kit ligar',
+      );
+
+  Future<bool> disableAutorun() => _changeAutorun(
+        '_arca_files.autorun_disable()',
+        working: 'Desligando programa de inicialização…',
+        done: 'O kit não executa mais nada ao ligar',
+      );
+
+  Future<bool> _changeAutorun(
+    String expression, {
+    required String working,
+    required String done,
+  }) async {
+    if (!isReady || !autorunAvailable) return false;
+    final epoch = _epoch;
+    _set(KitState.uploading, working);
+    try {
+      // Copiar e conferir o projeto inteiro na flash pode passar de 10 s.
+      final status = AutorunStatus.fromJson(
+        await _jsonCommand(
+          _repl!,
+          expression,
+          timeout: const Duration(seconds: 60),
+        ),
+      );
+      if (epoch != _epoch) return false;
+      autorun = status;
+      _set(KitState.ready, done);
+      return true;
+    } catch (error) {
+      if (epoch == _epoch) {
+        _set(KitState.ready, 'Não foi possível alterar: $error');
       }
       return false;
     }
@@ -739,11 +896,16 @@ class MicroPythonREPLService extends ChangeNotifier {
     }
   }
 
-  Future<Object?> _jsonCommand(RawRepl repl, String expression) async {
+  Future<Object?> _jsonCommand(
+    RawRepl repl,
+    String expression, {
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
     final output = StringBuffer();
     final result = await repl.execute(
       "import json; print('ARCA_JSON:' + json.dumps($expression))",
       onOutput: output.write,
+      timeout: timeout,
     );
     if (!result.succeeded) throw StateError(result.error);
     const marker = 'ARCA_JSON:';
@@ -883,6 +1045,7 @@ class MicroPythonREPLService extends ChangeNotifier {
     _inputRequestVersion = 0;
     libraryManagerAvailable = false;
     libraryManagerVersion = 0;
+    autorun = null;
     device = null;
     _set(KitState.disconnected, message);
     _closing = Future.wait<void>([

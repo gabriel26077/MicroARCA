@@ -4,10 +4,14 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:micro_arca_app/pages/libraries_page.dart';
+import 'package:micro_arca_app/services/library_block_manifest.dart';
 import 'package:micro_arca_app/services/library_catalog.dart';
 import 'package:micro_arca_app/services/library_catalog_client.dart';
 
 class EmptyCatalogRepository implements LibraryCatalogRepository {
+  @override
+  Future<List<LibraryBlockManifest>> cachedBlockManifests() async => const [];
+
   @override
   Future<CatalogSnapshot> fetchCatalog() async => CatalogSnapshot(
         catalog: LibraryCatalog.parse(
@@ -19,6 +23,12 @@ class EmptyCatalogRepository implements LibraryCatalogRepository {
 
   @override
   Future<List<CatalogPackage>> downloadedPackages(
+    LibraryCatalog catalog,
+  ) async =>
+      const [];
+
+  @override
+  Future<List<LibraryBlockManifest>> downloadedBlockManifests(
     LibraryCatalog catalog,
   ) async =>
       const [];
@@ -62,6 +72,9 @@ class DownloadedCatalogRepository implements LibraryCatalogRepository {
   bool downloaded = true;
 
   @override
+  Future<List<LibraryBlockManifest>> cachedBlockManifests() async => const [];
+
+  @override
   Future<CatalogSnapshot> fetchCatalog() async =>
       CatalogSnapshot(catalog: catalog, fromCache: false);
 
@@ -70,6 +83,12 @@ class DownloadedCatalogRepository implements LibraryCatalogRepository {
     LibraryCatalog catalog,
   ) async =>
       downloaded ? [catalog.packages.single] : const [];
+
+  @override
+  Future<List<LibraryBlockManifest>> downloadedBlockManifests(
+    LibraryCatalog catalog,
+  ) async =>
+      const [];
 
   @override
   Future<void> removeDownloadedPackage(

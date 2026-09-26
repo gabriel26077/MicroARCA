@@ -7,6 +7,7 @@ const officialCatalogUri =
     'https://libs-microarca.traceedu.com.br/v1/catalog.json';
 const maximumCatalogBytes = 1024 * 1024;
 const maximumLibraryBytes = 65536;
+const maximumBlockManifestBytes = 65536;
 
 final RegExp _packageId = RegExp(r'^[a-z0-9]+(?:-[a-z0-9]+)*$');
 final RegExp _version = RegExp(r'^\d+\.\d+\.\d+$');
@@ -61,6 +62,20 @@ class CatalogCompatibility {
   final List<String> boards;
 }
 
+class CatalogBlocks {
+  const CatalogBlocks({
+    required this.url,
+    required this.uri,
+    required this.size,
+    required this.sha256,
+  });
+
+  final String url;
+  final Uri uri;
+  final int size;
+  final String sha256;
+}
+
 class CatalogPackage {
   const CatalogPackage({
     required this.id,
@@ -74,6 +89,7 @@ class CatalogPackage {
     required this.compatibility,
     required this.dependencies,
     required this.files,
+    required this.blocks,
   });
 
   final String id;
@@ -87,6 +103,7 @@ class CatalogPackage {
   final CatalogCompatibility compatibility;
   final List<CatalogDependency> dependencies;
   final List<CatalogFile> files;
+  final CatalogBlocks? blocks;
 
   String get key => '$id@$version';
 }
@@ -277,6 +294,38 @@ class LibraryCatalog {
       throw FormatException('Proveniência inválida em $id@$version.');
     }
     final provenanceUrl = provenanceValue as String?;
+    final blocksValue = json['blocks'];
+    CatalogBlocks? blocks;
+    if (blocksValue != null) {
+      if (blocksValue is! Map) {
+        throw FormatException('Blocos inválidos em $id@$version.');
+      }
+      final metadata = blocksValue.cast<String, Object?>();
+      final url = metadata['url'];
+      final size = metadata['size'];
+      final digest = metadata['sha256'];
+      if (metadata.keys
+              .toSet()
+              .difference({'url', 'size', 'sha256'}).isNotEmpty ||
+          url is! String ||
+          size is! int ||
+          size < 1 ||
+          size > maximumBlockManifestBytes ||
+          digest is! String ||
+          !_digest.hasMatch(digest)) {
+        throw FormatException('Blocos inseguros em $id@$version.');
+      }
+      blocks = CatalogBlocks(
+        url: url,
+        uri: _validatedUri(
+          url,
+          catalogUri,
+          'packages/$id/$version/blocks.json',
+        ),
+        size: size,
+        sha256: digest,
+      );
+    }
     return CatalogPackage(
       id: id,
       name: requiredString('name'),
@@ -302,6 +351,7 @@ class LibraryCatalog {
       ),
       dependencies: List.unmodifiable(dependencies),
       files: List.unmodifiable(files),
+      blocks: blocks,
     );
   }
 

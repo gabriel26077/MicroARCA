@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'library_block_manifest.dart';
 import 'library_catalog.dart';
 
 const microArcaIdeVersion = '0.1.0';
@@ -30,15 +31,26 @@ class VerifiedFile {
 }
 
 class VerifiedPackage {
-  const VerifiedPackage({required this.package, required this.files});
+  const VerifiedPackage({
+    required this.package,
+    required this.files,
+    required this.blockManifest,
+  });
   final CatalogPackage package;
   final List<VerifiedFile> files;
+  final LibraryBlockManifest? blockManifest;
 }
 
 abstract interface class LibraryCatalogRepository {
   Future<CatalogSnapshot> fetchCatalog();
 
   Future<List<CatalogPackage>> downloadedPackages(LibraryCatalog catalog);
+
+  Future<List<LibraryBlockManifest>> downloadedBlockManifests(
+    LibraryCatalog catalog,
+  );
+
+  Future<List<LibraryBlockManifest>> cachedBlockManifests();
 
   Future<void> removeDownloadedPackage(
     LibraryCatalog catalog,
@@ -63,6 +75,13 @@ class LibraryCatalogClient implements LibraryCatalogRepository {
   final Uri catalogUri;
   final CatalogTransport _transport;
   final CatalogCache _cache;
+
+  @override
+  Future<List<LibraryBlockManifest>> cachedBlockManifests() async {
+    final cached = await _validatedCachedCatalog();
+    if (cached == null) return const [];
+    return downloadedBlockManifests(cached.catalog);
+  }
 
   @override
   Future<CatalogSnapshot> fetchCatalog() async {
@@ -103,6 +122,33 @@ class LibraryCatalogClient implements LibraryCatalogRepository {
       }
       rethrow;
     }
+  }
+
+  @override
+  Future<List<LibraryBlockManifest>> downloadedBlockManifests(
+    LibraryCatalog catalog,
+  ) async {
+    final downloaded = await downloadedPackages(catalog);
+    final downloadedKeys = downloaded.map((package) => package.key).toSet();
+    final ids = downloaded.map((package) => package.id).toSet().toList()
+      ..sort();
+    final manifests = <LibraryBlockManifest>[];
+    for (final id in ids) {
+      CatalogPackage? selected;
+      for (final candidate in catalog.versionsOf(id)) {
+        if (downloadedKeys.contains(candidate.key) &&
+            candidate.blocks != null) {
+          selected = candidate;
+          break;
+        }
+      }
+      if (selected == null) continue;
+      final metadata = selected.blocks!;
+      final bytes = await _cache.loadFile(metadata.sha256);
+      if (bytes == null || !_matchesBlocks(metadata, bytes)) continue;
+      manifests.add(LibraryBlockManifest.parse(bytes, selected));
+    }
+    return List.unmodifiable(manifests);
   }
 
   @override
@@ -156,12 +202,18 @@ class LibraryCatalogClient implements LibraryCatalogRepository {
       );
       if (retained != null) {
         retainedHashes.addAll(retained.files.map((file) => file.sha256));
+        final blocks = retained.blocks;
+        if (blocks != null) retainedHashes.add(blocks.sha256);
       }
     }
     for (final file in package.files) {
       if (!retainedHashes.contains(file.sha256)) {
         await _cache.deleteFile(file.sha256);
       }
+    }
+    final blocks = package.blocks;
+    if (blocks != null && !retainedHashes.contains(blocks.sha256)) {
+      await _cache.deleteFile(blocks.sha256);
     }
     await _cache.saveDownloadedPackageKeys(keys);
   }
@@ -170,6 +222,16 @@ class LibraryCatalogClient implements LibraryCatalogRepository {
     for (final file in package.files) {
       final bytes = await _cache.loadFile(file.sha256);
       if (bytes == null || !_matches(file, bytes)) return false;
+    }
+    final blocks = package.blocks;
+    if (blocks != null) {
+      final bytes = await _cache.loadFile(blocks.sha256);
+      if (bytes == null || !_matchesBlocks(blocks, bytes)) return false;
+      try {
+        LibraryBlockManifest.parse(bytes, package);
+      } on FormatException {
+        return false;
+      }
     }
     return true;
   }
@@ -182,7 +244,9 @@ class LibraryCatalogClient implements LibraryCatalogRepository {
     final total = packages.fold<int>(
       0,
       (sum, package) =>
-          sum + package.files.fold<int>(0, (value, file) => value + file.size),
+          sum +
+          package.files.fold<int>(0, (value, file) => value + file.size) +
+          (package.blocks?.size ?? 0),
     );
     var received = 0;
     final result = <VerifiedPackage>[];
@@ -211,8 +275,37 @@ class LibraryCatalogClient implements LibraryCatalogRepository {
         received += bytes.length;
         onProgress?.call(received, total);
       }
+      LibraryBlockManifest? blockManifest;
+      final blocks = package.blocks;
+      if (blocks != null) {
+        Uint8List? bytes = await _cache.loadFile(blocks.sha256);
+        if (bytes != null && !_matchesBlocks(blocks, bytes)) bytes = null;
+        if (bytes == null) {
+          final response = await _transport.get(
+            blocks.uri,
+            headers: const {},
+            maximumBytes: maximumBlockManifestBytes,
+          );
+          _requireSuccess(response, 'blocos de ${package.name}');
+          bytes = response.bytes;
+          if (!_matchesBlocks(blocks, bytes)) {
+            throw CatalogIntegrityException(
+              'Integridade inválida nos blocos de ${package.name}: tamanho '
+              'ou SHA-256 não corresponde ao catálogo.',
+            );
+          }
+          await _cache.saveFile(blocks.sha256, bytes);
+        }
+        blockManifest = LibraryBlockManifest.parse(bytes, package);
+        received += bytes.length;
+        onProgress?.call(received, total);
+      }
       result.add(
-        VerifiedPackage(package: package, files: List.unmodifiable(files)),
+        VerifiedPackage(
+          package: package,
+          files: List.unmodifiable(files),
+          blockManifest: blockManifest,
+        ),
       );
     }
     final downloaded = await _cache.loadDownloadedPackageKeys() ?? <String>{};
@@ -237,6 +330,10 @@ class LibraryCatalogClient implements LibraryCatalogRepository {
   bool _matches(CatalogFile file, Uint8List bytes) =>
       bytes.length == file.size &&
       sha256.convert(bytes).toString() == file.sha256;
+
+  bool _matchesBlocks(CatalogBlocks blocks, Uint8List bytes) =>
+      bytes.length == blocks.size &&
+      sha256.convert(bytes).toString() == blocks.sha256;
 
   void _requireSuccess(CatalogResponse response, String resource) {
     if (response.statusCode >= 300 && response.statusCode < 400) {

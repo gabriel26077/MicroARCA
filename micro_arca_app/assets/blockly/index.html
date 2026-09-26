@@ -1,0 +1,1225 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+    />
+    <title>Blocos MicroARCA</title>
+    <style>
+      html,
+      body,
+      #workspace {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: #f4fafb;
+        touch-action: none;
+      }
+
+      .blocklyText,
+      .blocklyHtmlInput {
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif !important;
+      }
+
+      #drag-trash {
+        position: fixed;
+        top: 76px;
+        left: 50%;
+        z-index: 20;
+        display: grid;
+        width: 64px;
+        height: 64px;
+        place-items: center;
+        color: #5f6368;
+        background: rgba(255, 255, 255, 0.96);
+        border: 2px solid #c6c8cc;
+        border-radius: 20px;
+        box-shadow: 0 8px 24px rgba(30, 45, 50, 0.22);
+        opacity: 0;
+        pointer-events: none;
+        transform: translate(-50%, -18px) scale(0.82);
+        transition:
+          opacity 120ms ease,
+          transform 120ms ease,
+          color 100ms ease,
+          background 100ms ease,
+          border-color 100ms ease;
+      }
+
+      #drag-trash.visible {
+        opacity: 1;
+        transform: translate(-50%, 0) scale(1);
+      }
+
+      #drag-trash.armed {
+        color: #ffffff;
+        background: #d93025;
+        border-color: #d93025;
+        transform: translate(-50%, 0) scale(1.1);
+      }
+
+      #drag-trash svg {
+        width: 34px;
+        height: 34px;
+        fill: currentColor;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="workspace" aria-label="Editor de blocos MicroARCA"></div>
+    <div id="drag-trash" aria-hidden="true">
+      <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+        <path d="M9 3h6l1 2h4v2H4V5h4l1-2zm-2 6h10l-1 12H8L7 9zm3 2v8h2v-8h-2zm4 0v8h2v-8h-2z" />
+      </svg>
+    </div>
+
+    <script src="blockly_compressed.js"></script>
+    <script src="blocks_compressed.js"></script>
+    <script src="python_compressed.js"></script>
+    <script src="pt-br.js"></script>
+    <script>
+      "use strict";
+
+      Blockly.defineBlocksWithJsonArray([
+        {
+          type: "microarca_forever",
+          message0: "repetir para sempre %1 %2",
+          args0: [
+            { type: "input_dummy" },
+            { type: "input_statement", name: "DO" },
+          ],
+          previousStatement: null,
+          style: "microarca_loop_blocks",
+          tooltip: "Repete os blocos internos enquanto o ESP32 estiver ligado.",
+          helpUrl: "",
+        },
+        {
+          type: "microarca_pin_mode",
+          message0: "configurar pino %1 como %2",
+          args0: [
+            {
+              type: "input_value",
+              name: "PIN",
+              check: "Number",
+            },
+            {
+              type: "field_dropdown",
+              name: "MODE",
+              options: [
+                ["saída", "OUT"],
+                ["entrada", "IN"],
+                ["entrada pull-up", "PULL_UP"],
+              ],
+            },
+          ],
+          previousStatement: null,
+          nextStatement: null,
+          style: "microarca_io_blocks",
+          tooltip: "Configura diretamente o modo de um pino GPIO.",
+          helpUrl: "",
+        },
+        {
+          type: "microarca_pin_write",
+          message0: "escrever no pino %1 nível %2",
+          args0: [
+            {
+              type: "input_value",
+              name: "PIN",
+              check: "Number",
+            },
+            {
+              type: "input_value",
+              name: "LEVEL",
+              check: "Boolean",
+            },
+          ],
+          previousStatement: null,
+          nextStatement: null,
+          style: "microarca_io_blocks",
+          tooltip: "Escreve nível lógico alto ou baixo em um pino configurado.",
+          helpUrl: "",
+        },
+        {
+          type: "microarca_wait",
+          message0: "esperar %1 segundos",
+          args0: [
+            {
+              type: "input_value",
+              name: "SECONDS",
+              check: "Number",
+            },
+          ],
+          previousStatement: null,
+          nextStatement: null,
+          style: "microarca_time_blocks",
+          tooltip: "Pausa o programa durante o tempo informado.",
+          helpUrl: "",
+        },
+        {
+          type: "microarca_logic_level",
+          message0: "%1",
+          args0: [
+            {
+              type: "field_dropdown",
+              name: "LEVEL",
+              options: [
+                ["ALTO", "HIGH"],
+                ["BAIXO", "LOW"],
+              ],
+            },
+          ],
+          output: "Boolean",
+          style: "logic_blocks",
+          tooltip: "Cria um valor lógico ALTO ou BAIXO.",
+          helpUrl: "",
+        },
+        {
+          type: "microarca_variable_change",
+          message0: "alterar %1 por %2",
+          args0: [
+            {
+              type: "field_variable",
+              name: "VAR",
+              variable: "contador",
+              variableTypes: ["Number"],
+              defaultType: "Number",
+            },
+            {
+              type: "input_value",
+              name: "DELTA",
+              check: "Number",
+            },
+          ],
+          previousStatement: null,
+          nextStatement: null,
+          style: "variable_dynamic_blocks",
+          tooltip: "Soma um número à variável.",
+          helpUrl: "",
+        },
+        {
+          type: "microarca_function_def",
+          message0: "definir função %1 %2",
+          args0: [
+            {
+              type: "field_input",
+              name: "NAME",
+              text: "minha_funcao",
+            },
+            { type: "input_statement", name: "BODY" },
+          ],
+          style: "microarca_function_blocks",
+          tooltip: "Cria uma função com o nome escolhido.",
+          helpUrl: "",
+        },
+        {
+          type: "microarca_function_call",
+          message0: "chamar função %1",
+          args0: [
+            {
+              type: "field_input",
+              name: "NAME",
+              text: "minha_funcao",
+            },
+          ],
+          previousStatement: null,
+          nextStatement: null,
+          style: "microarca_function_blocks",
+          tooltip: "Executa uma função definida no programa.",
+          helpUrl: "",
+        },
+      ]);
+
+      const pythonGenerator = python.pythonGenerator;
+
+      pythonGenerator.forBlock.microarca_forever = function (block, generator) {
+        const body = generator.statementToCode(block, "DO") || generator.PASS;
+        return `while True:\n${body}`;
+      };
+
+      function inputCode(block, inputName, generator, fallback) {
+        return generator.valueToCode(block, inputName, python.Order.NONE) || fallback;
+      }
+
+      function ensurePinRuntime(generator) {
+        generator.definitions_.microarca_import_pin = "from machine import Pin";
+        generator.definitions_.microarca_pin_registry = "_microarca_pinos = {}";
+        generator.definitions_["%microarca_configurar_pino"] =
+          "def _microarca_configurar_pino(numero, modo, pull=None):\n" +
+          "    numero = int(numero)\n" +
+          "    pino = Pin(numero, modo) if pull is None else Pin(numero, modo, pull)\n" +
+          "    _microarca_pinos[numero] = pino\n" +
+          "    return pino\n";
+        generator.definitions_["%microarca_obter_pino"] =
+          "def _microarca_obter_pino(numero):\n" +
+          "    numero = int(numero)\n" +
+          "    if numero not in _microarca_pinos:\n" +
+          "        _microarca_pinos[numero] = Pin(numero, Pin.OUT)\n" +
+          "    return _microarca_pinos[numero]\n";
+      }
+
+      pythonGenerator.forBlock.microarca_pin_mode = function (block, generator) {
+        const pin = inputCode(block, "PIN", generator, "2");
+        const mode = block.getFieldValue("MODE");
+        ensurePinRuntime(generator);
+        if (mode === "PULL_UP") {
+          return `_microarca_configurar_pino(${pin}, Pin.IN, Pin.PULL_UP)\n`;
+        }
+        const micropythonMode = mode === "IN" ? "Pin.IN" : "Pin.OUT";
+        return `_microarca_configurar_pino(${pin}, ${micropythonMode})\n`;
+      };
+
+      pythonGenerator.forBlock.microarca_pin_write = function (block, generator) {
+        const pin = inputCode(block, "PIN", generator, "2");
+        const level = inputCode(block, "LEVEL", generator, "False");
+        ensurePinRuntime(generator);
+        return `_microarca_obter_pino(${pin}).value(1 if ${level} else 0)\n`;
+      };
+
+      pythonGenerator.forBlock.microarca_wait = function (block, generator) {
+        const seconds = inputCode(block, "SECONDS", generator, "1");
+        generator.definitions_.microarca_import_time = "import time";
+        return `time.sleep(max(0, min(3600, float(${seconds}))))\n`;
+      };
+
+      pythonGenerator.forBlock.microarca_logic_level = function (block) {
+        return [
+          block.getFieldValue("LEVEL") === "HIGH" ? "True" : "False",
+          python.Order.ATOMIC,
+        ];
+      };
+
+      pythonGenerator.forBlock.microarca_variable_change = function (
+        block,
+        generator,
+      ) {
+        const variable = generator.getVariableName(block.getFieldValue("VAR"));
+        const delta = inputCode(block, "DELTA", generator, "1");
+        return (
+          `${variable} = (${variable} if isinstance(${variable}, ` +
+          `(int, float)) else 0) + ${delta}\n`
+        );
+      };
+
+      const pythonKeywords = new Set([
+        "False", "None", "True", "and", "as", "assert", "async", "await",
+        "break", "class", "continue", "def", "del", "elif", "else", "except",
+        "finally", "for", "from", "global", "if", "import", "in", "is",
+        "lambda", "nonlocal", "not", "or", "pass", "raise", "return", "try",
+        "while", "with", "yield",
+      ]);
+
+      const coreBlockTypes = new Set([
+        "microarca_forever",
+        "microarca_pin_mode",
+        "microarca_pin_write",
+        "microarca_wait",
+        "microarca_logic_level",
+        "microarca_variable_change",
+        "microarca_function_def",
+        "microarca_function_call",
+        "variables_set_dynamic",
+        "variables_get_dynamic",
+        "math_number",
+        "math_arithmetic",
+        "text",
+        "text_print",
+        "controls_if",
+        "controls_ifelse",
+        "logic_compare",
+        "logic_operation",
+        "logic_negate",
+      ]);
+      const variableBlockTypes = new Set([
+        "variables_set_dynamic",
+        "variables_get_dynamic",
+        "microarca_variable_change",
+      ]);
+      const libraryBlockPackages = new Map();
+      const libraryBlockDefinitions = new Map();
+
+      function pythonIdentifier(rawName, fallback) {
+        let name = String(rawName || fallback)
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^A-Za-z0-9_]/g, "_");
+        if (!/^[A-Za-z_]/.test(name)) name = `${fallback}_${name}`;
+        if (!name) name = fallback;
+        if (pythonKeywords.has(name)) name = `${fallback}_${name}`;
+        return name;
+      }
+
+      function functionName(rawName) {
+        return pythonIdentifier(rawName, "funcao");
+      }
+
+      pythonGenerator.forBlock.microarca_function_def = function (block, generator) {
+        const name = functionName(block.getFieldValue("NAME"));
+        const body = generator.statementToCode(block, "BODY") || generator.PASS;
+        generator.definitions_[`%${name}`] = `def ${name}():\n${body}`;
+        return null;
+      };
+
+      pythonGenerator.forBlock.microarca_function_call = function (block) {
+        return `${functionName(block.getFieldValue("NAME"))}()\n`;
+      };
+
+      function registerLibraryManifests(manifests) {
+        if (!Array.isArray(manifests)) return;
+        for (const manifest of manifests) {
+          const packageId = manifest?.package?.id;
+          const packageVersion = manifest?.package?.version;
+          const category = manifest?.category;
+          if (
+            typeof packageId !== "string" ||
+            typeof packageVersion !== "string" ||
+            typeof category?.color !== "string" ||
+            !Array.isArray(manifest.blocks)
+          ) {
+            continue;
+          }
+          const packageKey = `${packageId}@${packageVersion}`;
+          for (const definition of manifest.blocks) {
+            if (
+              typeof definition?.type !== "string" ||
+              coreBlockTypes.has(definition.type) ||
+              libraryBlockPackages.has(definition.type) ||
+              !Array.isArray(definition.fields)
+            ) {
+              continue;
+            }
+            const fields = new Map(
+              definition.fields.map((field) => [field.name, field]),
+            );
+            const fieldArg = (field) => {
+              if (field.type === "identifier") {
+                return {
+                  type: "field_input",
+                  name: field.name,
+                  text: String(field.default),
+                };
+              }
+              if (field.type === "integer") {
+                return {
+                  type: "input_value",
+                  name: field.name,
+                  check: "Number",
+                };
+              }
+              return {
+                type: "input_value",
+                name: field.name,
+                check: "String",
+              };
+            };
+            // Inputs sit inline, and each coordinate pair (a field named X,
+            // X1, X2...) starts a new row together with its two leading words,
+            // so "de x 0 y 0" and "até x 40 y 20" read as units instead of
+            // one input per row.
+            const parts = definition.label.split(/\{([A-Z][A-Z0-9_]*)\}/);
+            const args0 = [];
+            let message0 = "";
+            for (let index = 1; index < parts.length; index += 2) {
+              const field = fields.get(parts[index]);
+              if (!field) continue;
+              let text = parts[index - 1];
+              if (/^X[0-9]*$/.test(field.name) && args0.length > 0) {
+                const words = text.trim().split(/\s+/);
+                const kept = words.slice(0, -2).join(" ");
+                args0.push({ type: "input_end_row" });
+                message0 += ` ${kept} %${args0.length} `;
+                text = words.slice(-2).join(" ") + " ";
+              }
+              args0.push(fieldArg(field));
+              message0 += `${text}%${args0.length}`;
+            }
+            message0 += parts[parts.length - 1];
+            Blockly.defineBlocksWithJsonArray([
+              {
+                type: definition.type,
+                message0,
+                args0,
+                inputsInline: true,
+                previousStatement: null,
+                nextStatement: null,
+                colour: category.color,
+                tooltip: definition.description,
+                helpUrl: "",
+              },
+            ]);
+            pythonGenerator.forBlock[definition.type] = function (block, generator) {
+              for (const [index, importLine] of definition.python.imports.entries()) {
+                generator.definitions_[
+                  `library_${definition.type}_${index}`
+                ] = importLine;
+              }
+              return definition.python.template.replace(
+                /\{([A-Z][A-Z0-9_]*)\}/g,
+                (_, name) => {
+                  const field = fields.get(name);
+                  if (field.type === "identifier") {
+                    return pythonIdentifier(block.getFieldValue(name), "objeto");
+                  }
+                  if (field.type === "text") {
+                    return inputCode(
+                      block,
+                      name,
+                      generator,
+                      JSON.stringify(String(field.default ?? "")),
+                    );
+                  }
+                  const value = inputCode(
+                    block,
+                    name,
+                    generator,
+                    String(Number(field.default)),
+                  );
+                  return `max(${Number(field.min)}, min(${Number(field.max)}, int(${value})))`;
+                },
+              );
+            };
+            libraryBlockPackages.set(definition.type, packageKey);
+            libraryBlockDefinitions.set(definition.type, definition);
+          }
+        }
+      }
+
+      const theme = Blockly.Theme.defineTheme("microarca", {
+        base: Blockly.Themes.Classic,
+        blockStyles: {
+          microarca_loop_blocks: {
+            colourPrimary: "#1565c0",
+            colourSecondary: "#0d47a1",
+            colourTertiary: "#08306b",
+          },
+          microarca_io_blocks: {
+            colourPrimary: "#00a9bd",
+            colourSecondary: "#007f8f",
+            colourTertiary: "#005a66",
+          },
+          microarca_time_blocks: {
+            colourPrimary: "#7b61c9",
+            colourSecondary: "#5e45a8",
+            colourTertiary: "#433181",
+          },
+          microarca_function_blocks: {
+            colourPrimary: "#d06b22",
+            colourSecondary: "#aa4e12",
+            colourTertiary: "#7b3508",
+          },
+        },
+        componentStyles: {
+          workspaceBackgroundColour: "#f4fafb",
+          toolboxBackgroundColour: "#eaf9fb",
+          toolboxForegroundColour: "#183f46",
+          flyoutBackgroundColour: "#eaf9fb",
+          flyoutForegroundColour: "#183f46",
+          flyoutOpacity: 1,
+          scrollbarColour: "#8fcbd3",
+          insertionMarkerColour: "#00cfe8",
+          insertionMarkerOpacity: 0.35,
+          cursorColour: "#00a9bd",
+        },
+        fontStyle: {
+          family: "system-ui, sans-serif",
+          weight: "600",
+          size: 13,
+        },
+        startHats: true,
+      });
+
+      const workspace = Blockly.inject("workspace", {
+        theme,
+        renderer: "zelos",
+        media: "media/",
+        trashcan: false,
+        sounds: false,
+        move: {
+          scrollbars: false,
+          drag: true,
+          wheel: true,
+        },
+        zoom: {
+          controls: false,
+          wheel: true,
+          startScale: 0.86,
+          maxScale: 1.5,
+          minScale: 0.45,
+          scaleSpeed: 1.15,
+          pinch: true,
+        },
+      });
+
+      function post(message) {
+        if (window.MicroArcaBlocks && window.MicroArcaBlocks.postMessage) {
+          window.MicroArcaBlocks.postMessage(JSON.stringify(message));
+        }
+      }
+
+      const dragTrash = document.getElementById("drag-trash");
+      let draggedBlockId = null;
+      let pendingDeleteId = null;
+      let dragTrashArmed = false;
+      let dragTrashFrame = null;
+
+      function rectanglesIntersect(left, right) {
+        return !(
+          left.right < right.left ||
+          left.left > right.right ||
+          left.bottom < right.top ||
+          left.top > right.bottom
+        );
+      }
+
+      function blockIntersectsTrash(block) {
+        const blockRoot = block?.getSvgRoot?.();
+        if (!blockRoot || !dragTrash) return false;
+        return rectanglesIntersect(
+          blockRoot.getBoundingClientRect(),
+          dragTrash.getBoundingClientRect(),
+        );
+      }
+
+      function updateDragTrash() {
+        dragTrashFrame = null;
+        if (!draggedBlockId || pendingDeleteId) return;
+        const block = workspace.getBlockById(draggedBlockId);
+        dragTrashArmed = blockIntersectsTrash(block);
+        dragTrash.classList.toggle("armed", dragTrashArmed);
+      }
+
+      function scheduleDragTrashUpdate() {
+        if (!draggedBlockId || dragTrashFrame !== null) return;
+        dragTrashFrame = window.requestAnimationFrame(updateDragTrash);
+      }
+
+      document.addEventListener("pointermove", scheduleDragTrashUpdate, true);
+      document.addEventListener("touchmove", scheduleDragTrashUpdate, {
+        capture: true,
+        passive: true,
+      });
+
+      function handleBlockDrag(event) {
+        if (!event || event.type !== Blockly.Events.BLOCK_DRAG || pendingDeleteId) {
+          return;
+        }
+        if (event.isStart) {
+          cancelLongPress();
+          draggedBlockId = event.blockId;
+          dragTrashArmed = false;
+          dragTrash.classList.remove("armed");
+          dragTrash.classList.add("visible");
+          scheduleDragTrashUpdate();
+          return;
+        }
+        if (event.blockId !== draggedBlockId) return;
+        if (dragTrashFrame !== null) {
+          window.cancelAnimationFrame(dragTrashFrame);
+          dragTrashFrame = null;
+        }
+        const block = workspace.getBlockById(draggedBlockId);
+        dragTrashArmed = blockIntersectsTrash(block);
+        if (dragTrashArmed && block) {
+          pendingDeleteId = draggedBlockId;
+          dragTrash.classList.add("armed");
+          // The drag carries every block below and inside the dragged one;
+          // shadows are editable fields, not blocks the user placed.
+          const blockCount = block
+            .getDescendants(false)
+            .filter((descendant) => !descendant.isShadow()).length;
+          post({ type: "confirmDelete", blockId: pendingDeleteId, blockCount });
+        } else {
+          dragTrash.classList.remove("visible", "armed");
+        }
+        draggedBlockId = null;
+      }
+
+      function resolveDelete(blockId, confirmed) {
+        if (!pendingDeleteId || blockId !== pendingDeleteId) return;
+        const block = workspace.getBlockById(pendingDeleteId);
+        pendingDeleteId = null;
+        dragTrashArmed = false;
+        dragTrash.classList.remove("visible", "armed");
+        if (confirmed) {
+          // Do not heal the surrounding stack: the selected block and every
+          // block connected below or nested inside it form one delete unit.
+          block?.dispose(false, true);
+        } else {
+          workspace.undo(false);
+        }
+        emitState();
+      }
+
+      // On touch devices Blockly edits text and number fields through
+      // window.prompt, which the WebView renders as a bare system box. Route
+      // it to a Flutter dialog instead, remembering which field asked so the
+      // app can offer a numeric keyboard.
+      const pendingPrompts = new Map();
+      let promptSerial = 0;
+      let promptField = null;
+      const FieldInput = Object.getPrototypeOf(Blockly.FieldTextInput.prototype);
+      const showPromptEditor = FieldInput.showPromptEditor;
+      FieldInput.showPromptEditor = function () {
+        promptField = this;
+        try {
+          showPromptEditor.call(this);
+        } finally {
+          promptField = null;
+        }
+      };
+
+      Blockly.dialog.setPrompt((message, defaultValue, callback) => {
+        const id = `prompt-${++promptSerial}`;
+        pendingPrompts.set(id, callback);
+        post({
+          type: "prompt",
+          id,
+          message: String(message || "").replace(/:\s*$/, ""),
+          defaultValue: String(defaultValue ?? ""),
+          numeric: promptField instanceof Blockly.FieldNumber,
+        });
+      });
+
+      function resolvePrompt(id, value) {
+        const callback = pendingPrompts.get(id);
+        if (!callback) return;
+        pendingPrompts.delete(id);
+        callback(typeof value === "string" ? value : null);
+      }
+
+      // Holding a block still for this long offers to duplicate it. Blockly's
+      // own 750 ms long-press menu is disabled so it cannot fire first.
+      const LONG_PRESS_MS = 2000;
+      const LONG_PRESS_SLOP_PX = 10;
+      const DUPLICATE_OFFSET = 32;
+      // Same reason Blockly's own "Desabilitar bloco" uses, so projects stay
+      // compatible with its serialization and generator.
+      const MANUALLY_DISABLED = "MANUALLY_DISABLED";
+      let longPress = null;
+
+      Blockly.BlockSvg.prototype.showContextMenu = function () {};
+      // The canvas menu offers "Deletar N blocos" on a stray long press;
+      // undo and redo already live in the app's own menu.
+      Blockly.WorkspaceSvg.prototype.showContextMenu = function () {};
+
+      function cancelLongPress() {
+        if (!longPress) return;
+        window.clearTimeout(longPress.timer);
+        longPress = null;
+      }
+
+      function blockUnderPointer(target) {
+        const element = target instanceof Element ? target : null;
+        const root = element?.closest("[data-id]");
+        let block = root ? workspace.getBlockById(root.dataset.id) : null;
+        while (block && block.isShadow()) block = block.getParent();
+        return block;
+      }
+
+      function fireLongPress() {
+        const blockId = longPress?.blockId;
+        longPress = null;
+        const block = blockId ? workspace.getBlockById(blockId) : null;
+        if (!block || block.isDisposed() || draggedBlockId || pendingDeleteId) {
+          return;
+        }
+        workspace.cancelCurrentGesture();
+        Blockly.getFocusManager().focusNode(block);
+        let chainLength = 0;
+        for (let current = block; current; current = current.getNextBlock()) {
+          chainLength++;
+        }
+        post({
+          type: "blockActions",
+          blockId,
+          chainLength,
+          disabled: block.hasDisabledReason(MANUALLY_DISABLED),
+        });
+      }
+
+      const workspaceElement = document.getElementById("workspace");
+      workspaceElement.addEventListener(
+        "pointerdown",
+        (event) => {
+          // A second finger means pinch or pan, never a long press.
+          if (longPress || !event.isPrimary || event.button > 0) {
+            cancelLongPress();
+            return;
+          }
+          const block = blockUnderPointer(event.target);
+          if (!block) return;
+          longPress = {
+            blockId: block.id,
+            pointerId: event.pointerId,
+            x: event.clientX,
+            y: event.clientY,
+            timer: window.setTimeout(fireLongPress, LONG_PRESS_MS),
+          };
+        },
+        true,
+      );
+      document.addEventListener(
+        "pointermove",
+        (event) => {
+          if (!longPress || event.pointerId !== longPress.pointerId) return;
+          const distance = Math.hypot(
+            event.clientX - longPress.x,
+            event.clientY - longPress.y,
+          );
+          if (distance > LONG_PRESS_SLOP_PX) cancelLongPress();
+        },
+        true,
+      );
+      for (const type of ["pointerup", "pointercancel"]) {
+        document.addEventListener(type, cancelLongPress, true);
+      }
+
+      // A disabled block and the blocks nested inside it generate no code;
+      // the blocks below it in the stack keep running.
+      function setBlockDisabled(blockId, disabled) {
+        const block = workspace.getBlockById(blockId);
+        if (!block || block.isDisposed()) {
+          post({ type: "error", message: "O bloco não existe mais." });
+          return;
+        }
+        Blockly.Events.setGroup(true);
+        try {
+          block.setDisabledReason(Boolean(disabled), MANUALLY_DISABLED);
+        } finally {
+          Blockly.Events.setGroup(false);
+        }
+        emitState();
+      }
+
+      function duplicateBlock(blockId, withChain) {
+        const block = workspace.getBlockById(blockId);
+        if (!block || block.isDisposed()) {
+          post({ type: "error", message: "O bloco não existe mais." });
+          return;
+        }
+        const state = Blockly.serialization.blocks.save(block, {
+          addCoordinates: false,
+          addNextBlocks: Boolean(withChain),
+          saveIds: false,
+        });
+        const origin = block.getRelativeToSurfaceXY();
+        state.x = origin.x + DUPLICATE_OFFSET;
+        state.y = origin.y + DUPLICATE_OFFSET;
+        Blockly.Events.setGroup(true);
+        try {
+          const copy = Blockly.serialization.blocks.append(state, workspace);
+          Blockly.getFocusManager().focusNode(copy);
+        } finally {
+          Blockly.Events.setGroup(false);
+        }
+        emitState();
+      }
+
+      function emitState(requestId) {
+        try {
+          const state = Blockly.serialization.workspaces.save(workspace);
+          const code = pythonGenerator.workspaceToCode(workspace);
+          const requirements = [
+            ...new Set(
+              workspace
+                .getAllBlocks(false)
+                .map((block) => libraryBlockPackages.get(block.type))
+                .filter((value) => value),
+            ),
+          ].sort();
+          const variables = workspace
+            .getVariableMap()
+            .getAllVariables()
+            .map((variable) => ({
+              name: variable.getName(),
+              type: variable.getType() || "Number",
+            }))
+            .filter(
+              (variable) =>
+                typeof variable.name === "string" &&
+                variable.name.length > 0 &&
+                ["Number", "String", "Boolean"].includes(variable.type),
+            )
+            .sort((left, right) => left.name.localeCompare(right.name));
+          post({
+            type: "state",
+            workspace: JSON.stringify(state),
+            python: code,
+            requirements,
+            variables,
+            requestId,
+          });
+        } catch (error) {
+          post({ type: "error", message: String(error) });
+        }
+      }
+
+      function makeBlock(type) {
+        const block = workspace.newBlock(type);
+        block.initSvg();
+        block.render();
+        return block;
+      }
+
+      function attachShadow(parent, inputName, type, fields = {}) {
+        const connection = parent.getInput(inputName)?.connection;
+        if (!connection || connection.targetConnection) return;
+        const shadow = makeBlock(type);
+        shadow.setShadow(true);
+        for (const [name, value] of Object.entries(fields)) {
+          shadow.setFieldValue(String(value), name);
+        }
+        connection.connect(shadow.outputConnection);
+      }
+
+      function attachVariableShadow(block, inputName, variableType) {
+        if (variableType === "String") {
+          attachShadow(block, inputName, "text", { TEXT: "" });
+        } else if (variableType === "Boolean") {
+          attachShadow(block, inputName, "microarca_logic_level", {
+            LEVEL: "LOW",
+          });
+        } else {
+          attachShadow(block, inputName, "math_number", { NUM: 0 });
+        }
+      }
+
+      function attachDefaultShadows(block) {
+        switch (block.type) {
+          case "microarca_pin_mode":
+            attachShadow(block, "PIN", "math_number", { NUM: 2 });
+            break;
+          case "microarca_pin_write":
+            attachShadow(block, "PIN", "math_number", { NUM: 2 });
+            attachShadow(block, "LEVEL", "microarca_logic_level", {
+              LEVEL: "HIGH",
+            });
+            break;
+          case "microarca_wait":
+            attachShadow(block, "SECONDS", "math_number", { NUM: 1 });
+            break;
+          case "math_arithmetic":
+          case "logic_compare":
+            attachShadow(block, "A", "math_number", { NUM: 0 });
+            attachShadow(block, "B", "math_number", { NUM: 0 });
+            break;
+          case "text_print":
+            attachShadow(block, "TEXT", "text", { TEXT: "Olá!" });
+            break;
+          case "controls_if":
+          case "controls_ifelse":
+            attachShadow(block, "IF0", "microarca_logic_level", {
+              LEVEL: "HIGH",
+            });
+            break;
+          case "logic_operation":
+            attachShadow(block, "A", "microarca_logic_level", {
+              LEVEL: "HIGH",
+            });
+            attachShadow(block, "B", "microarca_logic_level", {
+              LEVEL: "HIGH",
+            });
+            break;
+          case "logic_negate":
+            attachShadow(block, "BOOL", "microarca_logic_level", {
+              LEVEL: "HIGH",
+            });
+            break;
+          case "microarca_variable_change":
+            attachShadow(block, "DELTA", "math_number", { NUM: 1 });
+            break;
+          default: {
+            const definition = libraryBlockDefinitions.get(block.type);
+            if (!definition) break;
+            for (const field of definition.fields) {
+              if (field.type === "integer") {
+                attachShadow(block, field.name, "math_number", {
+                  NUM: field.default,
+                });
+              } else if (field.type === "text") {
+                attachShadow(block, field.name, "text", {
+                  TEXT: field.default,
+                });
+              }
+            }
+          }
+        }
+      }
+
+      function positionNewBlock(block) {
+        const offset = workspace.getTopBlocks(false).length * 24;
+        block.moveBy(40 + offset, 90 + offset);
+        block.select();
+        workspace.centerOnBlock(block.id);
+      }
+
+      function createDefault() {
+        let pinMode = null;
+        Blockly.Events.disable();
+        try {
+          workspace.clear();
+          const forever = makeBlock("microarca_forever");
+          pinMode = makeBlock("microarca_pin_mode");
+          const pinHigh = makeBlock("microarca_pin_write");
+          const waitOn = makeBlock("microarca_wait");
+          const pinLow = makeBlock("microarca_pin_write");
+          const waitOff = makeBlock("microarca_wait");
+
+          pinMode.setFieldValue("OUT", "MODE");
+          for (const block of [pinMode, pinHigh, waitOn, pinLow, waitOff]) {
+            attachDefaultShadows(block);
+          }
+          pinLow
+            .getInputTargetBlock("LEVEL")
+            ?.setFieldValue("LOW", "LEVEL");
+
+          pinMode.nextConnection.connect(forever.previousConnection);
+          forever.getInput("DO").connection.connect(pinHigh.previousConnection);
+          pinHigh.nextConnection.connect(waitOn.previousConnection);
+          waitOn.nextConnection.connect(pinLow.previousConnection);
+          pinLow.nextConnection.connect(waitOff.previousConnection);
+          pinMode.moveBy(24, 24);
+        } finally {
+          Blockly.Events.enable();
+        }
+        Blockly.svgResize(workspace);
+        if (pinMode) workspace.centerOnBlock(pinMode.id);
+        emitState();
+      }
+
+      function addBlock(type) {
+        if (!coreBlockTypes.has(type) && !libraryBlockPackages.has(type)) {
+          post({ type: "error", message: "Tipo de bloco desconhecido." });
+          return;
+        }
+        const block = makeBlock(type);
+        attachDefaultShadows(block);
+        positionNewBlock(block);
+        emitState();
+      }
+
+      function addVariableBlock(type, rawName, rawVariableType) {
+        if (!variableBlockTypes.has(type)) {
+          post({
+            type: "error",
+            message: `Tipo de bloco de variável desconhecido: ${type}.`,
+          });
+          return;
+        }
+        const name = String(rawName || "").trim();
+        if (!/^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(name)) {
+          post({ type: "error", message: "Nome de variável inválido." });
+          return;
+        }
+        const requestedType = String(rawVariableType || "");
+        const variableType =
+          type === "microarca_variable_change" ? "Number" : requestedType;
+        if (!["Number", "String", "Boolean"].includes(variableType)) {
+          post({ type: "error", message: "Tipo de variável inválido." });
+          return;
+        }
+        const variableMap = workspace.getVariableMap();
+        const sameName = variableMap
+          .getAllVariables()
+          .find((candidate) => candidate.getName() === name);
+        if (sameName && sameName.getType() !== variableType) {
+          post({
+            type: "error",
+            message: `A variável ${name} já existe com outro tipo.`,
+          });
+          return;
+        }
+        const variable =
+          sameName || variableMap.createVariable(name, variableType);
+        const retainedVariableIds = new Set(
+          variableMap.getAllVariables().map((item) => item.getId()),
+        );
+        const block = makeBlock(type);
+        block.setFieldValue(variable.getId(), "VAR");
+        for (const candidate of variableMap.getAllVariables()) {
+          if (!retainedVariableIds.has(candidate.getId())) {
+            variableMap.deleteVariable(candidate);
+          }
+        }
+        if (type === "variables_set_dynamic") {
+          block.getInput("VALUE")?.setCheck(variableType);
+          attachVariableShadow(block, "VALUE", variableType);
+        } else if (type === "variables_get_dynamic") {
+          block.outputConnection?.setCheck(variableType);
+        } else {
+          attachDefaultShadows(block);
+        }
+        positionNewBlock(block);
+        emitState();
+      }
+
+      function undo() {
+        workspace.undo(false);
+      }
+
+      function redo() {
+        workspace.undo(true);
+      }
+
+      function deleteSelected() {
+        const selected = Blockly.getSelected();
+        if (selected && selected.workspace === workspace) {
+          selected.dispose(true, true);
+          emitState();
+        }
+      }
+
+      function migrateFieldToShadow(
+        blockState,
+        fieldName,
+        shadowType,
+        shadowField,
+        fallback,
+      ) {
+        const rawValue = blockState.fields?.[fieldName] ?? fallback;
+        blockState.inputs ||= {};
+        blockState.inputs[fieldName] ||= {
+          shadow: {
+            type: shadowType,
+            fields: { [shadowField]: rawValue },
+          },
+        };
+        if (blockState.fields) delete blockState.fields[fieldName];
+      }
+
+      function visitBlockStates(value, visitor) {
+        if (!value || typeof value !== "object") return;
+        if (typeof value.type === "string") visitor(value);
+        for (const child of Object.values(value)) {
+          visitBlockStates(child, visitor);
+        }
+      }
+
+      function migrateLegacyWorkspaceState(state) {
+        if (Array.isArray(state?.variables)) {
+          for (const variable of state.variables) {
+            if (
+              variable &&
+              typeof variable === "object" &&
+              !["Number", "String", "Boolean"].includes(variable.type)
+            ) {
+              variable.type = "Number";
+            }
+          }
+        }
+        visitBlockStates(state?.blocks, (blockState) => {
+          if (blockState.type === "variables_set") {
+            blockState.type = "variables_set_dynamic";
+          } else if (blockState.type === "variables_get") {
+            blockState.type = "variables_get_dynamic";
+          } else if (blockState.type === "math_change") {
+            blockState.type = "microarca_variable_change";
+          }
+
+          if (blockState.type === "microarca_pin_mode") {
+            migrateFieldToShadow(
+              blockState,
+              "PIN",
+              "math_number",
+              "NUM",
+              2,
+            );
+          } else if (blockState.type === "microarca_pin_write") {
+            migrateFieldToShadow(
+              blockState,
+              "PIN",
+              "math_number",
+              "NUM",
+              2,
+            );
+            migrateFieldToShadow(
+              blockState,
+              "LEVEL",
+              "microarca_logic_level",
+              "LEVEL",
+              "LOW",
+            );
+          } else if (blockState.type === "microarca_wait") {
+            migrateFieldToShadow(
+              blockState,
+              "SECONDS",
+              "math_number",
+              "NUM",
+              1,
+            );
+          }
+
+          const definition = libraryBlockDefinitions.get(blockState.type);
+          if (!definition) return;
+          for (const field of definition.fields) {
+            if (field.type === "integer") {
+              migrateFieldToShadow(
+                blockState,
+                field.name,
+                "math_number",
+                "NUM",
+                field.default,
+              );
+            } else if (field.type === "text") {
+              migrateFieldToShadow(
+                blockState,
+                field.name,
+                "text",
+                "TEXT",
+                field.default,
+              );
+            }
+          }
+        });
+        return state;
+      }
+
+      function loadWorkspace(encoded) {
+        try {
+          const state = migrateLegacyWorkspaceState(JSON.parse(encoded));
+          Blockly.Events.disable();
+          try {
+            workspace.clear();
+            Blockly.serialization.workspaces.load(state, workspace);
+          } finally {
+            Blockly.Events.enable();
+          }
+          Blockly.svgResize(workspace);
+          const roots = workspace.getTopBlocks(true);
+          if (roots.length) workspace.centerOnBlock(roots[0].id);
+          emitState();
+        } catch (error) {
+          post({ type: "error", message: `Projeto inválido: ${error}` });
+        }
+      }
+
+      let changeTimer = null;
+      workspace.addChangeListener((event) => {
+        handleBlockDrag(event);
+        if (event && event.isUiEvent) return;
+        window.clearTimeout(changeTimer);
+        changeTimer = window.setTimeout(emitState, 120);
+      });
+
+      window.addEventListener("resize", () => Blockly.svgResize(workspace));
+      window.microArca = {
+        registerLibraryManifests,
+        createDefault,
+        loadWorkspace,
+        addBlock,
+        addVariableBlock,
+        resolveDelete,
+        duplicateBlock,
+        setBlockDisabled,
+        resolvePrompt,
+        undo,
+        redo,
+        deleteSelected,
+        emitState,
+      };
+      post({ type: "ready" });
+    </script>
+  </body>
+</html>

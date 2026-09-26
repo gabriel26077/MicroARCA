@@ -2,7 +2,18 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../services/console_log.dart';
 import '../services/micropython_repl_service.dart';
+
+/// Abre o console por cima da tela atual; voltar retorna a ela.
+Future<void> openConsole(BuildContext context) => Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => Scaffold(
+          appBar: AppBar(title: const Text('Console')),
+          body: const SafeArea(child: ConsolePage()),
+        ),
+      ),
+    );
 
 class ConsolePage extends StatefulWidget {
   const ConsolePage({super.key});
@@ -12,48 +23,31 @@ class ConsolePage extends StatefulWidget {
 
 class _ConsolePageState extends State<ConsolePage> {
   final _service = MicroPythonREPLService();
+  final _log = ConsoleLog();
   final _scroll = ScrollController();
   final _command = TextEditingController();
-  late final StreamSubscription<String> _subscription;
-  late final Timer _timer;
-  String _text = '';
-  String _pending = '';
-  bool _truncated = false;
-  static const _limit = 64000;
 
   @override
   void initState() {
     super.initState();
-    _subscription = _service.onMessage.listen(_append);
-    // Uma atualização visual por lote, em vez de reconstruir por pacote BLE.
-    _timer = Timer.periodic(const Duration(milliseconds: 100), (_) => _flush());
+    _log.addListener(_changed);
+    // Ao abrir, mostra o fim da saída.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToEnd());
   }
 
-  void _append(String text) {
-    _pending += text.replaceAll('\r', '');
-    if (_pending.length > _limit) {
-      _pending = _pending.substring(_pending.length - _limit);
-      _truncated = true;
+  void _jumpToEnd() {
+    if (mounted && _scroll.hasClients) {
+      _scroll.jumpTo(_scroll.position.maxScrollExtent);
     }
   }
 
-  void _flush() {
-    if (_pending.isEmpty || !mounted) return;
+  void _changed() {
+    if (!mounted) return;
+    // Só acompanha o fim se o usuário não rolou para cima para ler.
     final follow = !_scroll.hasClients || _scroll.position.extentAfter < 60;
-    setState(() {
-      _text += _pending;
-      _pending = '';
-      if (_text.length > _limit) {
-        _text = _text.substring(_text.length - _limit);
-        _truncated = true;
-      }
-    });
+    setState(() {});
     if (follow) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _scroll.hasClients) {
-          _scroll.jumpTo(_scroll.position.maxScrollExtent);
-        }
-      });
+      WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToEnd());
     }
   }
 
@@ -66,14 +60,13 @@ class _ConsolePageState extends State<ConsolePage> {
     }
     if (!_service.isReady || value.trim().isEmpty) return;
     _command.clear();
-    _append('\n>>> $value\n');
+    _log.append('\n>>> $value\n');
     unawaited(_service.runCommand(value));
   }
 
   @override
   void dispose() {
-    _subscription.cancel();
-    _timer.cancel();
+    _log.removeListener(_changed);
     _scroll.dispose();
     _command.dispose();
     super.dispose();
@@ -92,16 +85,12 @@ class _ConsolePageState extends State<ConsolePage> {
               const Expanded(child: Text('Saída do programa')),
               IconButton(
                 tooltip: 'Limpar console',
-                onPressed: () => setState(() {
-                  _text = '';
-                  _pending = '';
-                  _truncated = false;
-                }),
+                onPressed: _log.clear,
                 icon: const Icon(Icons.delete_outline),
               ),
             ],
           ),
-          if (_truncated)
+          if (_log.truncated)
             const Text(
               'Histórico antigo removido para limitar o uso de memória.',
             ),
@@ -116,7 +105,9 @@ class _ConsolePageState extends State<ConsolePage> {
               child: SingleChildScrollView(
                 controller: _scroll,
                 child: SelectableText(
-                  _text.isEmpty ? 'A saída do kit aparecerá aqui.' : _text,
+                  _log.text.isEmpty
+                      ? 'A saída do kit aparecerá aqui.'
+                      : _log.text,
                   style: const TextStyle(
                     color: Colors.white,
                     fontFamily: 'FiraCode',

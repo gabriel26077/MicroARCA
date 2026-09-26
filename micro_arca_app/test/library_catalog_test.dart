@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:micro_arca_app/services/library_block_manifest.dart';
 import 'package:micro_arca_app/services/library_catalog.dart';
 import 'package:micro_arca_app/services/library_catalog_client.dart';
 import 'package:micro_arca_app/services/package_installation_storage.dart';
@@ -17,6 +18,7 @@ Map<String, Object?> packageJson({
   String? digest,
   int? size,
   String? url,
+  Map<String, Object?>? blocks,
 }) {
   final name = fileName ?? '${id.replaceAll('-', '_')}.py';
   return {
@@ -32,6 +34,7 @@ Map<String, Object?> packageJson({
       'boards': ['ESP32_GENERIC'],
     },
     'dependencies': dependencies,
+    if (blocks != null) 'blocks': blocks,
     'files': [
       {
         'name': name,
@@ -42,6 +45,33 @@ Map<String, Object?> packageJson({
     ],
   };
 }
+
+Uint8List blockManifestBytes({
+  String id = 'oled-pintor',
+  String version = '1.1.0',
+  String template = '{TELA}.limpa()\n',
+}) =>
+    Uint8List.fromList(
+      utf8.encode(
+        jsonEncode({
+          'schema': 1,
+          'package': {'id': id, 'version': version},
+          'category': {'name': 'Tela OLED', 'color': '#D96C18'},
+          'blocks': [
+            {
+              'type': 'oled_pintor_limpar',
+              'name': 'Limpar tela',
+              'description': 'Apaga o conteúdo da tela.',
+              'label': 'limpar tela {TELA}',
+              'fields': [
+                {'name': 'TELA', 'type': 'identifier', 'default': 'tela'},
+              ],
+              'python': {'imports': <String>[], 'template': template},
+            },
+          ],
+        }),
+      ),
+    );
 
 Uint8List catalogBytes(List<Map<String, Object?>> packages) =>
     Uint8List.fromList(
@@ -194,6 +224,65 @@ void main() {
         );
       }
     });
+
+    test('aceita descritor de blocos somente no caminho canônico', () {
+      final bytes = blockManifestBytes();
+      final digest = sha256.convert(bytes).toString();
+      final valid = packageJson(
+        id: 'oled-pintor',
+        version: '1.1.0',
+        blocks: {
+          'url': 'packages/oled-pintor/1.1.0/blocks.json',
+          'size': bytes.length,
+          'sha256': digest,
+        },
+      );
+      final catalog = LibraryCatalog.parse(catalogBytes([valid]), catalogUri);
+      expect(catalog.packages.single.blocks?.sha256, digest);
+
+      valid['blocks'] = {
+        'url': 'packages/outro/1.1.0/blocks.json',
+        'size': bytes.length,
+        'sha256': digest,
+      };
+      expect(
+        () => LibraryCatalog.parse(catalogBytes([valid]), catalogUri),
+        throwsFormatException,
+      );
+    });
+
+    test('valida manifesto declarativo sem JavaScript', () {
+      final bytes = blockManifestBytes();
+      final digest = sha256.convert(bytes).toString();
+      final catalog = LibraryCatalog.parse(
+        catalogBytes([
+          packageJson(
+            id: 'oled-pintor',
+            version: '1.1.0',
+            blocks: {
+              'url': 'packages/oled-pintor/1.1.0/blocks.json',
+              'size': bytes.length,
+              'sha256': digest,
+            },
+          ),
+        ]),
+        catalogUri,
+      );
+      final manifest = LibraryBlockManifest.parse(
+        bytes,
+        catalog.packages.single,
+      );
+      expect(manifest.packageKey, 'oled-pintor@1.1.0');
+      expect(manifest.blocks.single.type, 'oled_pintor_limpar');
+
+      expect(
+        () => LibraryBlockManifest.parse(
+          blockManifestBytes(template: '<script>alert(1)</script>\n'),
+          catalog.packages.single,
+        ),
+        throwsFormatException,
+      );
+    });
   });
 
   group('cliente', () {
@@ -267,6 +356,50 @@ void main() {
       final downloaded = await client.download(catalog.packages);
       expect(downloaded.single.files.single.bytes, expected);
       expect(transport.requests, isEmpty);
+    });
+
+    test('baixa, valida e lista os blocos associados ao pacote', () async {
+      final blocks = blockManifestBytes();
+      final blocksDigest = sha256.convert(blocks).toString();
+      final catalog = LibraryCatalog.parse(
+        catalogBytes([
+          packageJson(
+            id: 'oled-pintor',
+            version: '1.1.0',
+            blocks: {
+              'url': 'packages/oled-pintor/1.1.0/blocks.json',
+              'size': blocks.length,
+              'sha256': blocksDigest,
+            },
+          ),
+        ]),
+        catalogUri,
+      );
+      final transport = FakeCatalogTransport()
+        ..responses.add(
+          CatalogResponse(
+            statusCode: 200,
+            headers: const {},
+            bytes: Uint8List(0),
+          ),
+        )
+        ..responses.add(
+          CatalogResponse(
+            statusCode: 200,
+            headers: const {},
+            bytes: blocks,
+          ),
+        );
+      final client = LibraryCatalogClient(
+        transport: transport,
+        cache: MemoryCatalogCache(),
+      );
+
+      final verified = await client.download(catalog.packages);
+      expect(verified.single.blockManifest?.blocks.length, 1);
+      final available = await client.downloadedBlockManifests(catalog);
+      expect(available.single.packageKey, 'oled-pintor@1.1.0');
+      expect(transport.requests.last.maximum, maximumBlockManifestBytes);
     });
 
     test('lista downloads e preserva arquivo compartilhado ao apagar',

@@ -86,6 +86,10 @@ class SettingsPage extends StatelessWidget {
                 ),
               ),
             ),
+            if (service.isConnected && service.libraryManagerAvailable) ...[
+              const SizedBox(height: 12),
+              _AutorunCard(service: service),
+            ],
             if (!service.isConnected && !connecting) ...[
               const SizedBox(height: 16),
               for (final kit in service.devices)
@@ -115,6 +119,88 @@ class SettingsPage extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+class _AutorunCard extends StatelessWidget {
+  const _AutorunCard({required this.service});
+
+  final MicroPythonREPLService service;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final autorun = service.autorun;
+    if (!service.autorunAvailable) {
+      return const Card(
+        child: ListTile(
+          leading: Icon(Icons.power_settings_new),
+          title: Text('Executar ao ligar'),
+          subtitle: Text(
+            'Atualize main.py e arca_files.py na placa, pelo cabo, para usar.',
+          ),
+        ),
+      );
+    }
+    final active = autorun?.active == true;
+    final project = autorun?.project;
+    final description = !active
+        ? 'O kit não executa nada ao ligar. Para gravar, abra um projeto e '
+            'toque em Gravar no kit.'
+        : project == null
+            ? 'Roda um programa gravado por uma versão anterior do app.'
+            : 'Roda "${project.name}" (${project.kind.label.toLowerCase()}) '
+                'sempre que ligar.';
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  active ? Icons.bolt : Icons.power_settings_new,
+                  color: active ? theme.colorScheme.primary : null,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Executar ao ligar',
+                    style: theme.textTheme.titleMedium,
+                  ),
+                ),
+                Text(active ? 'Ligado' : 'Desligado'),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (autorun?.tripped == true) ...[
+              Text(
+                'Foi desligado automaticamente: a placa reiniciou várias vezes '
+                'seguidas enquanto executava o programa.',
+                style: TextStyle(color: theme.colorScheme.error),
+              ),
+              const SizedBox(height: 8),
+            ],
+            Text(description),
+            if (active) ...[
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: service.isReady ? service.disableAutorun : null,
+                icon: const Icon(Icons.block),
+                label: const Text('Desligar'),
+              ),
+            ],
+            const SizedBox(height: 12),
+            Text(
+              'Conectar o app sempre interrompe o programa. Para a placa ligar '
+              'sem executá-lo, segure o botão BOOT logo depois de ligar.',
+              style: theme.textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

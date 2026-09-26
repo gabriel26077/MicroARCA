@@ -246,7 +246,7 @@ class _LibrariesPageState extends State<LibrariesPage> {
         _catalogProgress = 0;
       });
       final verified = await _catalogRepository.download(
-        plan.toInstall,
+        plan.resolved,
         onProgress: (received, total) {
           if (mounted) {
             setState(
@@ -254,10 +254,12 @@ class _LibrariesPageState extends State<LibrariesPage> {
           }
         },
       );
+      final installKeys = plan.toInstall.map((package) => package.key).toSet();
       final uploads = [
         for (final package in verified)
-          for (final file in package.files)
-            LibraryUpload(name: file.metadata.name, bytes: file.bytes),
+          if (installKeys.contains(package.package.key))
+            for (final file in package.files)
+              LibraryUpload(name: file.metadata.name, bytes: file.bytes),
       ];
       if (uploads.isNotEmpty &&
           !await _service.installLibrariesAtomically(uploads)) {
