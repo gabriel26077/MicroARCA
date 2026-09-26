@@ -1,5 +1,35 @@
 # Retomada da sessão — Projeto ARCA
 
+> **Gestos do editor de blocos — 26/09/2026:** arrastar o fundo move o canvas
+> (o Blockly 13 exige `scrollbars: true` para isso; as barras ficam ocultas por
+> CSS). A lixeira de arrastar foi removida. Segurar um bloco por 0,75 s abre:
+> Copiar, Duplicar bloco, Duplicar cadeia, Deletar bloco (os de baixo sobem),
+> Deletar cadeia e Desativar/Ativar. Copiar mostra uma barra **Colar | X** que
+> fica até o X; cada colagem sai um pouco deslocada, e a cópia vale entre
+> projetos enquanto o app está aberto. Cada ação é um único passo de desfazer.
+> A pinça de zoom do Blockly foi substituída por uma própria (`pinch: false`):
+> com o arraste do canvas ligado, o primeiro dedo já iniciava um arraste e o
+> Blockly ignorava o segundo. Agora o segundo dedo cancela o gesto do Blockly, a
+> distância entre os dedos define o zoom e o ponto médio desloca o canvas.
+> Validado no Moto G34 com toques simulados pelo DevTools.
+> Atalhos à esquerda do canvas (ideia do usuário): Pinos, Variáveis, Controle
+> (ícone de setas se dividindo, também na gaveta), Lógica, Matemática e a última
+> biblioteca aberta ou usada. Cada um abre a gaveta só com aquela seção aberta,
+> já rolada até ela. A última biblioteca vale entre projetos enquanto o app
+> está aberto.
+> Variáveis: o bloco de atribuição (`variables_set_dynamic`, redefinido no
+> `index.html`) virou só `x ← valor`, chamado "Declarar/atribuir" na gaveta e na
+> dica; um bloco só, porque em Python criar e atribuir são o mesmo `x = valor`.
+> O posicionamento padrão do Zelos preserva o encaixe superior sem recortar o
+> seletor da variável. "alterar x por 1" virou "somar 1 a x". Ao tocar no
+> atalho de Variáveis aparecem `$` (usar), `←` (declarar/atribuir) e `…`
+> (gaveta completa). O seletor rápido lista e pesquisa variáveis sem abrir o
+> teclado automaticamente. O menu nativo de renomear/excluir recebeu fonte e
+> áreas de toque maiores para celular.
+> Texto e console: `Exibir no console` aceita texto, número e lógico; o bloco
+> `Juntar valores` converte cada parte com `str`. Manifestos de bibliotecas
+> também aceitam o campo declarativo `value` para esses três tipos básicos.
+
 > **Projetos unificados — 26/09/2026:** as abas agora são Projetos | Console |
 > Kits. Todo programa é um **projeto** no celular, de **Blocos** ou **Python**
 > (vários arquivos, `main.py` como entrada), guardado em `LocalProjectStorage`
