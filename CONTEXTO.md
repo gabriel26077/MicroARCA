@@ -1,5 +1,127 @@
 # Retomada da sessão — Projeto ARCA
 
+> **Projetos unificados — 26/09/2026:** as abas agora são Projetos | Console |
+> Kits. Todo programa é um **projeto** no celular, de **Blocos** ou **Python**
+> (vários arquivos, `main.py` como entrada), guardado em `LocalProjectStorage`
+> (`project_storage.dart`). O kit deixou de ser lugar de edição: cada projeto tem
+> **Executar** (envia e roda) e **Gravar no kit** (envia e deixa rodando ao
+> ligar), via `ProjectDeployer`, que deixa `/app` com exatamente os arquivos do
+> projeto. O firmware (`arca_files.py` v5) registra o projeto em
+> `.arca-project.json` e o copia para o estado da execução ao ligar; o app mostra
+> "⚡ gravado no kit" ou "alterações não gravadas" comparando a revisão
+> (`updatedAt`; renomear não muda a revisão). Blocos têm "Converter em projeto
+> Python" (só de ida). Removidos o antigo Editor, o `ProgramStorage` e o projeto
+> de blocos único, sem migração, por decisão do usuário. "Trazer do kit" ficou
+> para depois. Testes: 57 no app, 46 no firmware (Linux).
+
+> **Executar ao ligar — 25/09/2026:** `arca_files.py` versão 4 grava uma cópia
+> congelada de `/app` em `/autorun` (cópia conferida por SHA-256, troca segura
+> contra reset) e `main.py` a executa ao ligar. Saídas: conectar o app (Ctrl+C,
+> como antes), segurar BOOT ~1,5 s logo depois de ligar, e um contador em
+> `.arca-autorun.json` que desliga a opção após 3 boots seguidos sem zerar (zera
+> ao terminar, após 10 s rodando ou quando o app conecta). A aba Kits ganhou o
+> cartão **Executar ao ligar** (gravar, gravar de novo, desligar, aviso de
+> desligamento automático). Decisões: conectar continua interrompendo o
+> programa; o programa é uma cópia congelada; não há bloco "ao iniciar". Testes
+> do firmware: 44 no Linux (WSL); no Windows um teste antigo falha por CRLF.
+> **Pendente:** copiar `arca_files.py` e `main.py` para cada placa pelo cabo e
+> validar em hardware real (Ctrl+C por BLE durante o programa, botão BOOT,
+> contador).
+
+> **Layout dos blocos de biblioteca — 25/09/2026:** blocos de manifesto agora
+> usam `inputsInline: true` e quebram a linha antes de cada coordenada (campo
+> `X`, `X1`, `X2`…), levando junto as duas palavras anteriores ("de x", "até x",
+> "em x"). Ex.: `na tela [tela] retângulo` / `de x 0 y 0` / `até x 40 y 20`. Os
+> argumentos passam a ser ligados pelo nome do campo, não pela ordem. Nada muda
+> no catálogo nem em projetos salvos. **Achado pendente:** no Blockly 13,
+> `move.drag` é forçado a `false` quando `scrollbars` é `false` (ver
+> `parseMoveOptions`), então arrastar o canvas não funciona no app.
+
+> **Gaveta de blocos em seções expansíveis — 25/09/2026:** a gaveta "Adicionar
+> bloco" agora lista seções fechadas (Controle, Pinos, Lógica e comparações,
+> Matemática, Texto e console, Variáveis, Funções, Bibliotecas), cada uma com
+> ícone na cor dos seus blocos e um resumo do conteúdo. As seções abertas são
+> lembradas entre aberturas da gaveta. As seções são dados (`_blockSections`
+> em `blocks_page.dart`); ALTO/BAIXO aparece em Pinos e em Lógica de propósito.
+> Um painel lateral só com ícones foi descartado porque, no celular, o usuário
+> não associa ícone e conteúdo de imediato.
+
+> **Edição de campos do Blockly em diálogo Flutter — 25/09/2026:** no celular o
+> Blockly edita campos de texto e número via `window.prompt`, que o WebView
+> mostrava como uma caixa crua do sistema. O `Blockly.dialog.setPrompt` agora
+> manda o pedido ao Flutter, que mostra um `AlertDialog` Material com o valor já
+> selecionado. Campos `FieldNumber` abrem o teclado numérico, e a vírgula
+> decimal vira ponto. Validado no emulador Android API 37 (texto, número,
+> cancelar e desfazer).
+
+> **Duplicar por toque longo no Blockly — 25/09/2026:** segurar um bloco parado
+> por 2 s abre uma folha com **Duplicar bloco** (o bloco com o que está encaixado
+> dentro dele, sem os de baixo) e **Duplicar cadeia** (o bloco e todos os
+> encaixados abaixo). Para bloco solto, as duas opções dão o mesmo resultado. A
+> cópia aparece deslocada 32 unidades e o desfazer trata a duplicação como uma
+> ação só. A mesma folha tem **Desativar bloco** / **Ativar bloco**, que usa o
+> motivo `MANUALLY_DISABLED` do próprio Blockly: o bloco fica hachurado, ele e
+> o que está dentro dele não geram código, e os blocos de baixo continuam
+> executando. Os menus nativos do Blockly (bloco e canvas, 750 ms) foram
+> desativados; o do canvas oferecia "Deletar N blocos". O `WebViewWidget`
+> passou a usar `EagerGestureRecognizer`: sem ele, o `GestureDetector` global de
+> `main.dart` ganhava a disputa de gestos e o WebView recebia `pointerup` depois
+> de cerca de 150 ms. Validado no emulador Android API 37 com cadeia, bloco do
+> meio, bloco solto e arraste comum.
+
+> **Lixeira por arraste no Blockly — 25/09/2026:** ao começar a arrastar um
+> bloco, uma lixeira flutuante aparece no topo do canvas. Ela aumenta e fica
+> vermelha quando o bloco intersecta sua área. Ao soltar nessa posição, a IDE
+> abre o diálogo **“Deseja apagar esse bloco?”**. Confirmar remove o bloco;
+> cancelar desfaz o arraste e restaura sua posição e conexões anteriores. Se o
+> bloco arrastado é o topo de uma pilha, a pilha inteira vai junto no arraste e
+> é apagada inteira (sem “curar” a pilha); o diálogo informa quantos blocos
+> encaixados serão removidos, sem contar blocos-sombra. O gesto
+> completo, a confirmação, o cancelamento e a exclusão foram validados no
+> emulador Android API 37. A análise Dart e os 46 testes Flutter passaram, e o
+> APK foi recompilado e instalado no emulador.
+
+> **Variáveis tipadas, lógica e fluxo no Blockly — 25/09/2026:** as variáveis
+> agora têm um dos tipos básicos `Number`, `String` ou `Boolean`. O diálogo mostra
+> o tipo em português e os encaixes do Blockly impedem combinações inválidas;
+> alterar variável aceita somente números. Pino, espera e os parâmetros numéricos
+> ou textuais dos blocos de bibliotecas foram convertidos em entradas tipadas com
+> blocos-sombra, preservando a edição simples e permitindo usar variáveis. Foram
+> adicionados `se`, `se/senão`, comparações `=`, `≠`, `<`, `≤`, `>` e `≥`, além
+> de `não`, `e`, `ou` e do valor lógico `ALTO/BAIXO`. Projetos legados são migrados
+> ao abrir. O gerador usa um registro de pinos para que o número do GPIO também
+> possa vir de uma expressão. A validação real no WebView confirmou que texto não
+> encaixa em número e que lógico encaixa no nível, mas não no número do pino. A
+> análise Dart passou, os 46 testes Flutter passaram e o APK foi recompilado,
+> instalado e aberto no emulador Android API 37. A toolchain Android está em
+> Gradle 8.14, Android Gradle Plugin 8.11.1 e Kotlin 2.2.20.
+
+> **Blocos associados a bibliotecas — 24/09/2026:** o catálogo passou a aceitar
+> um `blocks.json` declarativo, versionado e protegido por tamanho/SHA-256, sem
+> JavaScript remoto. A nova `oled-pintor@1.1.0` oferece oito blocos para criar,
+> limpar e atualizar a tela, escrever texto e desenhar linha, retângulo, círculo
+> e coração. A IDE baixa e valida o manifesto junto do pacote, guarda-o somente
+> no celular e monta dinamicamente as categorias do editor Blockly usando o
+> cache offline. O workspace registra `id@versão` das bibliotecas utilizadas e,
+> antes de executar, confere se essas versões estão instaladas no ESP32 conectado.
+
+> **Protótipo Blockly — 23/09/2026:** a IDE ganhou um modo visual em tela cheia,
+> aberto pela opção **Blocos** e executado inteiramente offline com Blockly 13.3.0
+> empacotado no APK. O canvas começa com um blink infinito editável; o menu
+> sobreposto permite inserir blocos de GPIO em baixo nível (configurar pino e
+> escrever nível lógico), controle, espera, definição e chamada de funções. Ele
+> fecha após a escolha e posiciona o novo bloco no workspace. O exemplo de blink
+> configura explicitamente o `Pin(2)` como saída, sem associar o GPIO a um LED.
+> O menu secundário oferece
+> desfazer, refazer, excluir o bloco selecionado, visualizar o MicroPython e
+> restaurar o exemplo. **Executar** gera o código, salva em `/app/main.py` pelo
+> transporte BLE existente e inicia o entrypoint; **Parar** envia a interrupção.
+> O workspace JSON é salvo automaticamente no celular. O app passou a exigir
+> Android 7.0/API 24 por causa da WebView. A prévia real gerou corretamente o
+> blink para `Pin(2)` e a interface foi validada no Moto g34. Passaram 42 testes
+> Flutter, a análise Dart e o build Android; o APK foi instalado e aberto. Ainda
+> falta confirmar o blink no ESP32 físico conectado.
+
 > **Workspace editável no ESP32 — 23/09/2026:** o Editor passou a tratar códigos
 > do usuário como arquivos de projeto, não como bibliotecas oficiais. O explorador
 > reúne cópias do celular e arquivos seguros de `/app`; permite abrir, editar,
@@ -249,8 +371,8 @@ Origem: `/home/gsnn/Projects/ProjetoARCA`, WSL2, usuário `gsnn` no computador
 - Flutter usado nos testes: **3.47.5**, Dart **3.13.4**, em
   `/tmp/arca-flutter-sdk`. Essa instalação é temporária, externa ao repositório e
   **não acompanhará a cópia**.
-- Configuração Android atual: Gradle wrapper **8.12**, Android Gradle Plugin
-  **8.9.1**, Kotlin **2.1.0**.
+- Configuração Android atual: Gradle wrapper **8.14**, Android Gradle Plugin
+  **8.11.1**, Kotlin **2.2.20**.
 - Com o Flutter testado: compile/target SDK **36**, min SDK **24** (Android 7),
   NDK **28.2.13676358**, derivados dos defaults do Flutter.
 - O Linux tinha Java 25. Instalamos via mise o Temurin
