@@ -6,13 +6,27 @@ Python e mantém os arquivos de infraestrutura da raiz fora do alcance do app.
 
 import binascii
 import hashlib
+import json
 import os
 import sys
+import time
 
 
-VERSION = 3
+VERSION = 5
 LIB_DIR = "lib"
 APP_DIR = "app"
+# Cópia congelada de /app executada por main.py ao ligar a placa.
+AUTORUN_DIR = "autorun"
+_AUTORUN_STATE = ".arca-autorun.json"
+# Qual projeto do app está em /app; copiado para o estado ao gravar.
+_PROJECT_INFO = ".arca-project.json"
+# Boots seguidos sem estabilizar antes de desligar a execução automática.
+AUTORUN_MAX_FAILED_BOOTS = 3
+AUTORUN_HEALTHY_AFTER_S = 10
+AUTORUN_SKIP_PIN = 0
+AUTORUN_SKIP_WINDOW_MS = 1500
+# Raiz do filesystem, usada nos caminhos de import.
+_ROOT = "/"
 MAX_FILE_SIZE = 65536
 _RESERVED = (
     "boot.py",
@@ -642,3 +656,245 @@ def workspace_prepare_run():
             except KeyError:
                 pass
     return app_path + "/main.py"
+
+
+# Execução ao ligar ------------------------------------------------------------
+#
+# O app congela o projeto de /app em /autorun. main.py chama autorun_boot(), que
+# só executa se a opção estiver ligada. Há três saídas para nunca perder o kit:
+# Ctrl-C pelo BLE (o app já interrompe ao conectar), o botão BOOT logo após
+# ligar e um contador que desliga a opção após boots seguidos sem estabilizar.
+
+
+def _valid_project(info):
+    if not isinstance(info, dict):
+        return False
+    for key, limit in (("id", 64), ("name", 80)):
+        value = info.get(key)
+        if not isinstance(value, str) or not 0 < len(value) <= limit:
+            return False
+    return (
+        info.get("kind") in ("blocks", "python")
+        and isinstance(info.get("revision"), int)
+        and len(info) == 4
+    )
+
+
+def project_set(info):
+    """Registra qual projeto do app acabou de ser enviado para /app."""
+    if not _valid_project(info):
+        raise ValueError("Projeto inválido")
+    part = _PROJECT_INFO + ".part"
+    with open(part, "w") as target:
+        json.dump(info, target)
+    os.sync()
+    os.rename(part, _PROJECT_INFO)
+    os.sync()
+
+
+def project_info():
+    try:
+        with open(_PROJECT_INFO) as source:
+            info = json.load(source)
+    except (OSError, ValueError):
+        return None
+    return info if _valid_project(info) else None
+
+
+def _read_autorun_state():
+    try:
+        with open(_AUTORUN_STATE) as source:
+            saved = json.load(source)
+    except (OSError, ValueError):
+        saved = {}
+    if not isinstance(saved, dict):
+        saved = {}
+    boots = saved.get("boots")
+    files = saved.get("files")
+    project = saved.get("project")
+    return {
+        "enabled": saved.get("enabled") is True,
+        "boots": boots if isinstance(boots, int) and boots >= 0 else 0,
+        "tripped": saved.get("tripped") is True,
+        "files": files if isinstance(files, list) else [],
+        "project": project if _valid_project(project) else None,
+    }
+
+
+def _write_autorun_state(state):
+    part = _AUTORUN_STATE + ".part"
+    with open(part, "w") as target:
+        json.dump(state, target)
+    os.sync()
+    os.rename(part, _AUTORUN_STATE)
+    os.sync()
+
+
+def _remove_flat_directory(path):
+    try:
+        names = os.listdir(path)
+    except OSError:
+        return
+    for name in names:
+        os.remove(path + "/" + name)
+    os.rmdir(path)
+
+
+def _file_sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as source:
+        while True:
+            chunk = source.read(256)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.digest()
+
+
+def _autorun_recover():
+    """Conclui uma troca de cópia interrompida por reset."""
+    old = AUTORUN_DIR + ".old"
+    if not _exists(AUTORUN_DIR) and _exists(old):
+        os.rename(old, AUTORUN_DIR)
+    else:
+        _remove_flat_directory(old)
+    _remove_flat_directory(AUTORUN_DIR + ".part")
+
+
+def autorun_status():
+    state = _read_autorun_state()
+    state["installed"] = _exists(AUTORUN_DIR + "/main.py")
+    return state
+
+
+def autorun_enable():
+    if _workspace_file is not None:
+        raise RuntimeError("Upload de arquivo em andamento")
+    _ensure_workspace()
+    _autorun_recover()
+    files = workspace_list()
+    total = sum(item["size"] for item in files)
+    if total + 4096 > filesystem_info()["free"]:
+        raise OSError("Espaço insuficiente para gravar o programa")
+    part = AUTORUN_DIR + ".part"
+    old = AUTORUN_DIR + ".old"
+    os.mkdir(part)
+    try:
+        for item in files:
+            source = APP_DIR + "/" + item["name"]
+            copy = part + "/" + item["name"]
+            _copy_file(source, copy)
+            if _file_sha256(copy) != _file_sha256(source):
+                raise OSError("Cópia de " + item["name"] + " incorreta")
+        os.sync()
+    except Exception:
+        _remove_flat_directory(part)
+        raise
+    # A cópia anterior só sai depois que a nova está completa e verificada.
+    if _exists(AUTORUN_DIR):
+        os.rename(AUTORUN_DIR, old)
+    os.rename(part, AUTORUN_DIR)
+    os.sync()
+    _write_autorun_state({
+        "enabled": True,
+        "boots": 0,
+        "tripped": False,
+        "files": [item["name"] for item in files],
+        "project": project_info(),
+    })
+    _remove_flat_directory(old)
+    os.sync()
+    return autorun_status()
+
+
+def autorun_disable():
+    _write_autorun_state(
+        {"enabled": False, "boots": 0, "tripped": False, "files": [], "project": None}
+    )
+    _autorun_recover()
+    _remove_flat_directory(AUTORUN_DIR)
+    os.sync()
+    return autorun_status()
+
+
+def autorun_mark_healthy():
+    state = _read_autorun_state()
+    if state["boots"]:
+        state["boots"] = 0
+        _write_autorun_state(state)
+
+
+def _skip_requested():
+    """Botão BOOT pressionado logo após ligar pula o programa."""
+    try:
+        from machine import Pin
+        button = Pin(AUTORUN_SKIP_PIN, Pin.IN, Pin.PULL_UP)
+    except Exception:
+        return False
+    print("Segure BOOT para não executar o programa de inicialização...")
+    deadline = time.ticks_add(time.ticks_ms(), AUTORUN_SKIP_WINDOW_MS)
+    while time.ticks_diff(deadline, time.ticks_ms()) > 0:
+        if button.value() == 0:
+            return True
+        time.sleep_ms(20)
+    return False
+
+
+def _mark_healthy_later():
+    try:
+        import _thread
+    except ImportError:
+        return
+
+    def wait():
+        time.sleep(AUTORUN_HEALTHY_AFTER_S)
+        try:
+            autorun_mark_healthy()
+        except Exception:
+            pass
+
+    try:
+        _thread.start_new_thread(wait, ())
+    except Exception:
+        pass
+
+
+def autorun_boot():
+    """Chamado por main.py. Exceções do programa sobem para main.py."""
+    _autorun_recover()
+    state = _read_autorun_state()
+    entrypoint = AUTORUN_DIR + "/main.py"
+    if not state["enabled"] or not _exists(entrypoint):
+        return
+    if state["boots"] >= AUTORUN_MAX_FAILED_BOOTS:
+        state["enabled"] = False
+        state["tripped"] = True
+        _write_autorun_state(state)
+        print(
+            "Programa de inicialização desligado: a placa reiniciou "
+            + str(state["boots"])
+            + " vezes seguidas sem estabilizar."
+        )
+        return
+    if _skip_requested():
+        print("BOOT pressionado: programa de inicialização não executado.")
+        return
+    # Um reset durante o programa deixa o contador alto; sobreviver ou terminar
+    # o zera. Conectar o app também zera, pelo autorun_mark_healthy().
+    state["boots"] += 1
+    _write_autorun_state(state)
+    _mark_healthy_later()
+    path = _ROOT + AUTORUN_DIR
+    sys.path.insert(0, path)
+    print("Executando o programa de inicialização. Conecte o app para interromper.")
+    try:
+        exec(
+            compile(open(entrypoint).read(), entrypoint, "exec"),
+            {"__name__": "__main__", "__file__": entrypoint},
+        )
+    finally:
+        try:
+            sys.path.remove(path)
+        except ValueError:
+            pass
+        autorun_mark_healthy()

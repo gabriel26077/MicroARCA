@@ -47,7 +47,8 @@ print(arca_ble.name)
 print(arca_ble.last_error)
 ```
 
-O boot termina normalmente, não abre Wi-Fi e não executa `user.py` automaticamente.
+O boot termina normalmente e não abre Wi-Fi. `main.py` só executa um programa se
+a opção **Executar ao ligar** tiver sido gravada pelo app (veja abaixo).
 A conexão serial do cabo continua disponível para diagnóstico e recuperação.
 
 ## Usar no Android
@@ -68,13 +69,13 @@ flutter run
    localização para descobrir BLE e pode exigir que a localização esteja ligada.
 3. Selecione o nome da placa. Não é necessário parear primeiro nas configurações
    do Android. Um kit aceita apenas um celular por vez.
-4. No editor, use o explorador para criar ou abrir arquivos. **Salvar** envia o
-   arquivo atual para `/app`; **Executar** sincroniza o arquivo aberto e inicia
-   o entrypoint editável `/app/main.py`.
-5. Veja a saída em **Console**. **Parar** também está disponível nessa aba.
-6. Arquivos criados pelo usuário ficam no explorador do Editor e podem ser
-   abertos, alterados e excluídos. Outros módulos em `/app` podem ser importados
-   normalmente pelo `main.py`.
+4. Em **Projetos**, crie um projeto de **Blocos** ou de **Python**. Projetos
+   ficam no celular. Um projeto Python pode ter vários arquivos; `main.py` é a
+   entrada e pode importar os outros.
+5. **Executar** envia o projeto ao kit e roda agora. `/app` passa a conter
+   exatamente os arquivos do projeto (o Python gerado, no caso de blocos).
+   **Gravar no kit** faz o mesmo e deixa o projeto rodando ao ligar.
+6. Veja a saída em **Console**. **Parar** fica no editor do projeto.
 7. Em **Kits → Bibliotecas**, consulte o catálogo oficial em
    `https://libs-microarca.traceedu.com.br/v1/catalog.json`. Pacotes e todas as
    dependências ficam em `/lib` e são baixados e verificados antes de o ESP32
@@ -107,6 +108,32 @@ O app não reenvia nem executa um programa automaticamente depois de uma queda.
 Desconectar não interrompe o programa e não desliga os pinos/motores. Ctrl+C
 interrompe o Python, mas também não restaura automaticamente os pinos: programas
 com atuadores devem desligá-los em um `finally` apropriado.
+
+## Executar ao ligar
+
+Requer `arca_files.py` versão 5 e o `main.py` atual na placa. **Gravar no kit**,
+no editor do projeto, envia o projeto para `/app`, registra qual projeto é em
+`.arca-project.json` e copia `/app` para `/autorun`, conferindo cada cópia por
+SHA-256 antes de substituir a anterior. Editar o projeto depois não muda o que
+roda ao ligar; é preciso gravar de novo, e o app avisa quando há alterações não
+gravadas. A aba **Kits** mostra qual projeto roda ao ligar e permite desligar.
+Bibliotecas continuam vindo de `/lib`.
+
+`boot.py` liga o BLE antes de `main.py`, então o programa roda com o REPL já
+disponível. Há três formas de retomar o controle:
+
+1. **Conectar o app**: a conexão envia Ctrl+C e interrompe o programa.
+2. **Botão BOOT**: segurá-lo durante ~1,5 s logo **depois** de ligar pula o
+   programa. Segurá-lo *durante* o reset entra no modo de gravação do ESP32.
+3. **Proteção contra reinícios**: cada boot que executa o programa soma 1 em
+   `.arca-autorun.json`. O contador zera quando o programa termina, após 10 s
+   rodando ou quando o app conecta. Com 3 boots seguidos sem zerar, a opção é
+   desligada e o app avisa.
+
+Programas podem anular a primeira saída se capturarem `KeyboardInterrupt`
+(`except:` sem tipo), desligarem o Ctrl+C (`micropython.kbd_intr(-1)`) ou
+mexerem no Bluetooth. Nesses casos use o botão BOOT ou o cabo USB (`mpremote`),
+que continua sendo o último recurso de recuperação.
 
 ## Teste de bancada necessário
 
