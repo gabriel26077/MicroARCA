@@ -323,6 +323,60 @@ void main() {
     });
   });
 
+  test('seletor declarativo valida opções, padrão e serialização', () {
+    final package = LibraryCatalog.parse(
+      catalogBytes([packageJson(id: 'oled-pintor', version: '1.1.0')]),
+      catalogUri,
+    ).packages.single;
+    final field = <String, Object?>{
+      'name': 'TELA',
+      'type': 'dropdown',
+      'default': 'A',
+      'options': [
+        ['Dó', 'C'],
+        ['Lá', 'A']
+      ],
+    };
+    final parsed = LibraryBlockManifest.parse(
+      blockManifestBytes(field: field),
+      package,
+    ).blocks.single.fields.single;
+    expect(parsed.type, LibraryBlockFieldType.dropdown);
+    expect(parsed.toBridgeJson()['options'], field['options']);
+    for (final invalid in <Map<String, Object?>>[
+      {...field, 'default': 'B'},
+      {...field, 'options': <Object>[]},
+      {
+        ...field,
+        'options': [
+          ['Dó', 'C'],
+          ['Outra', 'C']
+        ]
+      },
+      {
+        ...field,
+        'options': [
+          ['Dó', 1]
+        ]
+      },
+      {
+        ...field,
+        'options': [
+          ['Dó', 'C', 'extra']
+        ]
+      },
+      {...field, 'min': 0},
+      {...field, 'type': 'text'},
+    ]) {
+      expect(
+          () => LibraryBlockManifest.parse(
+                blockManifestBytes(field: invalid),
+                package,
+              ),
+          throwsFormatException);
+    }
+  });
+
   group('cliente', () {
     test('usa ETag e reutiliza somente catálogo validado após 304', () async {
       final transport = FakeCatalogTransport();

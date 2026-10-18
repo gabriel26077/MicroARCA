@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 import 'library_catalog.dart';
 
-enum LibraryBlockFieldType { identifier, integer, text, value }
+enum LibraryBlockFieldType { identifier, integer, text, value, dropdown }
 
 class LibraryBlockField {
   const LibraryBlockField({
@@ -12,6 +12,7 @@ class LibraryBlockField {
     required this.defaultValue,
     this.minimum,
     this.maximum,
+    this.options,
   });
 
   final String name;
@@ -19,6 +20,7 @@ class LibraryBlockField {
   final Object defaultValue;
   final int? minimum;
   final int? maximum;
+  final List<List<String>>? options;
 
   Map<String, Object> toBridgeJson() => {
         'name': name,
@@ -26,6 +28,7 @@ class LibraryBlockField {
         'default': defaultValue,
         if (minimum != null) 'min': minimum!,
         if (maximum != null) 'max': maximum!,
+        if (options != null) 'options': options!,
       };
 }
 
@@ -264,14 +267,52 @@ List<LibraryBlockField> _parseFields(List<dynamic> values, String blockType) {
   for (final item in values) {
     if (item is! Map) throw FormatException('Campo inválido em $blockType.');
     final field = item.cast<String, Object?>();
-    _requireKeys(field, {'name', 'type', 'default'}, {'min', 'max'});
+    _requireKeys(field, {'name', 'type', 'default'}, {'min', 'max', 'options'});
     final name = field['name'];
     final type = field['type'];
     final defaultValue = field['default'];
     if (name is! String || !_fieldName.hasMatch(name) || !names.add(name)) {
       throw FormatException('Nome de campo inválido em $blockType.');
     }
+    if (type != 'dropdown' && field.containsKey('options')) {
+      throw FormatException(
+          'Opções só são permitidas em seletores: $blockType.');
+    }
     switch (type) {
+      case 'dropdown':
+        final values = field['options'];
+        if (defaultValue is! String ||
+            values is! List ||
+            values.isEmpty ||
+            values.length > 32 ||
+            field.containsKey('min') ||
+            field.containsKey('max')) {
+          throw FormatException('Seletor inválido em $blockType.');
+        }
+        final options = <List<String>>[];
+        final seen = <String>{};
+        for (final option in values) {
+          if (option is! List ||
+              option.length != 2 ||
+              option.any((item) =>
+                  item is! String || item.isEmpty || item.length > 64)) {
+            throw FormatException('Opção inválida em $blockType.');
+          }
+          final pair = option.cast<String>();
+          if (!seen.add(pair[1])) {
+            throw FormatException('Opção repetida em $blockType.');
+          }
+          options.add(List.unmodifiable(pair));
+        }
+        if (!seen.contains(defaultValue)) {
+          throw FormatException('Opção padrão ausente em $blockType.');
+        }
+        fields.add(LibraryBlockField(
+          name: name,
+          type: LibraryBlockFieldType.dropdown,
+          defaultValue: defaultValue,
+          options: List.unmodifiable(options),
+        ));
       case 'identifier':
         if (defaultValue is! String ||
             !_identifier.hasMatch(defaultValue) ||

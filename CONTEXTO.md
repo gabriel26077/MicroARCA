@@ -1,5 +1,21 @@
 # Retomada da sessão — Projeto ARCA
 
+> **Leitura de pinos, PWM e buzzer — 28/09/2026:** novos blocos digitais
+> (Boolean), ADC (0–65535, 11 dB) e configurar/ajustar/desligar PWM.
+> `assets/blockly/io_blocks.js` gera o runtime com validação de pinos do
+> ESP32 clássico, preservação de pull-up e liberação de PWM nas trocas de modo
+> e no encerramento. Manifestos aceitam campos `dropdown` para selecionar notas.
+> Biblioteca `buzzer-passivo@1.0.0` preparada no catálogo WSL
+> `/home/gsnn/Projects/SistemaMicroARCA`, incluindo fontes, blocos, licença,
+> testes, lock e dist; **ainda não publicada no espelho**.
+> Projetos executados pelo app chamam `__arca_cleanup__` em finally;
+> `arca_files.py` faz o mesmo no autorun. Atualizar esse arquivo na placa para
+> limpeza automática de projetos Python gravados. Blocos também geram finally
+> próprio. Validação: 61 testes Flutter, 53 Python, 77 do catálogo, 7 verificações
+> Blockly e integração do manifesto real; análise limpa e APK debug compilado.
+> Sem navegador conectado para revisão visual e sem ensaio físico nesta sessão.
+> Detalhes e roteiro de bancada: `docs/pinos-e-buzzer.md`.
+
 > **Gestos do editor de blocos — 26/09/2026:** arrastar o fundo move o canvas
 > (o Blockly 13 exige `scrollbars: true` para isso; as barras ficam ocultas por
 > CSS). A lixeira de arrastar foi removida. Segurar um bloco por 0,75 s abre:

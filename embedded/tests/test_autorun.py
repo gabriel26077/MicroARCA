@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import types
 import unittest
 from unittest.mock import patch
 
@@ -81,6 +82,24 @@ class AutorunTests(unittest.TestCase):
             self.files.autorun_boot()
         self.assertEqual(self.state()['boots'], 0)
         self.assertTrue(self.state()['enabled'])
+
+    def test_autorun_cleans_libraries_on_interrupt_and_continues_after_hook_error(self):
+        calls = []
+
+        def broken():
+            calls.append('broken')
+            raise ValueError('cleanup failure')
+
+        modules = {
+            'fake_broken': types.SimpleNamespace(__arca_cleanup__=broken),
+            'fake_buzzer': types.SimpleNamespace(__arca_cleanup__=lambda: calls.append('stopped')),
+        }
+        self.write_app('main.py', 'raise KeyboardInterrupt()\n')
+        self.files.autorun_enable()
+        with patch.dict(self.files.sys.modules, modules), self.assertRaises(KeyboardInterrupt):
+            self.files.autorun_boot()
+        self.assertEqual(calls, ['broken', 'stopped'])
+        self.assertEqual(self.state()['boots'], 0)
 
     def test_repeated_resets_disable_autorun_without_running(self):
         self.write_app('main.py', 'open("rodou.txt", "w").write("sim")\n')

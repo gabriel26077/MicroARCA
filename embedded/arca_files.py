@@ -859,6 +859,17 @@ def _mark_healthy_later():
         pass
 
 
+def cleanup_resources():
+    """Bibliotecas podem liberar recursos ao sair, inclusive por Ctrl+C."""
+    for module in list(sys.modules.values()):
+        cleanup = getattr(module, "__arca_cleanup__", None)
+        if callable(cleanup):
+            try:
+                cleanup()
+            except Exception as error:
+                print("Falha ao liberar biblioteca:", error)
+
+
 def autorun_boot():
     """Chamado por main.py. Exceções do programa sobem para main.py."""
     _autorun_recover()
@@ -893,6 +904,7 @@ def autorun_boot():
             {"__name__": "__main__", "__file__": entrypoint},
         )
     finally:
+        cleanup_resources()
         try:
             sys.path.remove(path)
         except ValueError:

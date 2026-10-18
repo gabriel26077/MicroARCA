@@ -12,6 +12,7 @@ import 'input_protocol.dart';
 import 'library_storage.dart';
 import 'project_storage.dart';
 import 'raw_repl.dart';
+import 'workspace_run_command.dart';
 
 enum KitState {
   disconnected,
@@ -923,9 +924,7 @@ class MicroPythonREPLService extends ChangeNotifier {
         "exec(compile(open('user.py').read(), 'user.py', 'exec'), {'__name__': '__main__', 'input': _arca_input})",
       );
 
-  Future<void> runWorkspaceMain() => runCommand(
-        "_arca_path = _arca_files.workspace_prepare_run(); exec(compile(open(_arca_path).read(), _arca_path, 'exec'), {'__name__': '__main__', '__file__': _arca_path, 'input': _arca_input})",
-      );
+  Future<void> runWorkspaceMain() => runCommand(workspaceRunCommand);
 
   Future<void> runCommand(String source) async {
     if (!isReady || source.trim().isEmpty) return;
