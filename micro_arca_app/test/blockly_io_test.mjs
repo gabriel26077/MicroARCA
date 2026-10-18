@@ -44,6 +44,22 @@ for (const type of MicroArcaIO.types) {
 }
 {
   const ws = workspace();
+  const print = ws.newBlock('text_print');
+  const input = ws.newBlock('microarca_console_input');
+  const prompt = ws.newBlock('text');
+  prompt.setFieldValue('Qual é seu nome? ', 'TEXT');
+  input.getInput('PROMPT').connection.connect(prompt.outputConnection);
+  print.getInput('TEXT').connection.connect(input.outputConnection);
+  const code = pythonGenerator.workspaceToCode(ws);
+  assert.match(code, /print\(input\(['"]Qual é seu nome\? ['"]\)\)/);
+  const saved = Blockly.serialization.workspaces.save(ws);
+  const restored = workspace();
+  Blockly.serialization.workspaces.load(saved, restored);
+  assert.equal(pythonGenerator.workspaceToCode(restored), code);
+  ws.dispose(); restored.dispose(); checks++;
+}
+{
+  const ws = workspace();
   const condition = ws.newBlock('controls_if');
   const digital = defaults(ws.newBlock('microarca_pin_read'));
   condition.getInput('IF0').connection.connect(digital.outputConnection);

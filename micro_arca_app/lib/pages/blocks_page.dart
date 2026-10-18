@@ -110,6 +110,7 @@ class _BlocksPageState extends State<BlocksPage> {
   String _python = '';
   List<String> _requirements = const [];
   List<BlockVariable> _variables = const [];
+  bool _usesConsoleInput = false;
   List<LibraryBlockManifest> _libraryManifests = const [];
   String? _notice;
   String? _libraryWarning;
@@ -370,6 +371,7 @@ class _BlocksPageState extends State<BlocksPage> {
               _python = snapshot.python;
               _requirements = snapshot.requirements;
               _variables = snapshot.variables;
+              _usesConsoleInput = snapshot.usesConsoleInput;
               _notice = null;
             });
           }
@@ -686,6 +688,9 @@ class _BlocksPageState extends State<BlocksPage> {
 
   String _statusLine() {
     if (!_service.isConnected) return 'ESP32 desconectado';
+    if (_service.state == KitState.waitingForInput) {
+      return 'Aguardando resposta no console';
+    }
     return switch (kitProjectRelation(_service, _project)) {
       KitProjectRelation.current => '⚡ Gravado no kit',
       KitProjectRelation.currentOutdated =>
@@ -799,11 +804,17 @@ class _BlocksPageState extends State<BlocksPage> {
       );
       return;
     }
+    final project = await _prepareDeploy();
+    if (project == null || !mounted) return;
+    if (_usesConsoleInput) {
+      _showMessage(
+        'Este programa aguarda uma resposta pelo celular. Use Executar com o console conectado.',
+      );
+      return;
+    }
     if (!await confirmInstallOnKit(context, widget.project.name) || !mounted) {
       return;
     }
-    final project = await _prepareDeploy();
-    if (project == null || !mounted) return;
     await _deployer.install(project, {'main.py': _python});
     _showMessage(_service.status);
   }
@@ -1106,7 +1117,21 @@ class _BlocksPageState extends State<BlocksPage> {
                       ),
                     ),
                   ),
-                if (_notice != null || _libraryWarning != null)
+                if (_service.state == KitState.waitingForInput)
+                  Positioned(
+                    left: 12,
+                    right: 12,
+                    top: 78,
+                    child: Center(
+                      child: FilledButton.icon(
+                        onPressed: () => openConsole(context),
+                        icon: const Icon(Icons.chat_bubble_outline),
+                        label: const Text('Responder no console'),
+                      ),
+                    ),
+                  ),
+                if (_service.state != KitState.waitingForInput &&
+                    (_notice != null || _libraryWarning != null))
                   Positioned(
                     left: 12,
                     right: 12,
@@ -1402,7 +1427,7 @@ const _blockSections = [
   _BlockSection(
     id: 'text',
     title: 'Texto e console',
-    summary: 'Texto, mostrar no console',
+    summary: 'Texto, mostrar e ler no console',
     icon: Icons.text_fields,
     color: Color(0xff5ba58c),
     blocks: [
@@ -1412,6 +1437,11 @@ const _blockSections = [
           'Combina texto, número ou valor lógico em um único texto.'),
       _BlockEntry('text_print', Icons.terminal, 'Mostrar no console',
           'Exibe texto, número ou valor lógico no console do MicroARCA.'),
+      _BlockEntry(
+          'microarca_console_input',
+          Icons.question_answer_outlined,
+          'Ler resposta no console',
+          'Mostra uma pergunta e lê um texto enviado pelo console.'),
     ],
   ),
   _BlockSection(

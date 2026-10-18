@@ -188,6 +188,15 @@
           helpUrl: "",
         },
         {
+          type: "microarca_console_input",
+          message0: "ler resposta no console %1",
+          args0: [{ type: "input_value", name: "PROMPT", check: "String" }],
+          output: "String",
+          style: "text_blocks",
+          tooltip: "Mostra uma pergunta no console e aguarda uma resposta pelo celular.",
+          helpUrl: "",
+        },
+        {
           type: "microarca_text_join",
           message0: "juntar %1 com %2",
           args0: [
@@ -316,6 +325,11 @@
         return [`str(${left}) + str(${right})`, python.Order.ADDITIVE];
       };
 
+      pythonGenerator.forBlock.microarca_console_input = function (block, generator) {
+        const prompt = inputCode(block, "PROMPT", generator, "''");
+        return [`input(${prompt})`, python.Order.FUNCTION_CALL];
+      };
+
       pythonGenerator.forBlock.microarca_variable_change = function (
         block,
         generator,
@@ -352,6 +366,7 @@
         "math_arithmetic",
         "text",
         "text_print",
+        "microarca_console_input",
         "microarca_text_join",
         "controls_if",
         "controls_ifelse",
@@ -961,6 +976,9 @@
             python: code,
             requirements,
             variables,
+            usesConsoleInput: workspace.getAllBlocks(false).some(
+              (block) => block.type === "microarca_console_input",
+            ),
             requestId,
           });
         } catch (error) {
@@ -1022,6 +1040,9 @@
             break;
           case "text_print":
             attachShadow(block, "TEXT", "text", { TEXT: "Olá!" });
+            break;
+          case "microarca_console_input":
+            attachShadow(block, "PROMPT", "text", { TEXT: "Digite: " });
             break;
           case "microarca_text_join":
             attachShadow(block, "A", "text", { TEXT: "texto" });

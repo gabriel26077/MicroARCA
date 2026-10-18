@@ -103,6 +103,12 @@ v = int(input("Digite um número: "))
 print(2 * v)
 ```
 
+No editor visual, o bloco **Ler resposta no console** gera `input()` e devolve
+texto, que pode ser guardado em uma variável ou exibido. Ao executar, o editor
+mostra **Responder no console** quando o ESP32 aguarda a resposta. Projetos de
+blocos com essa leitura não podem ser gravados para iniciar automaticamente ao
+ligar, pois dependem da resposta enviada pelo celular.
+
 Conectar ou reconectar interrompe a execução anterior para sincronizar o REPL.
 O app não reenvia nem executa um programa automaticamente depois de uma queda.
 Desconectar não interrompe o programa e não desliga os pinos/motores. Ctrl+C

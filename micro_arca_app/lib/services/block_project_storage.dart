@@ -33,12 +33,14 @@ class BlockProgramSnapshot {
     required this.python,
     required this.requirements,
     required this.variables,
+    required this.usesConsoleInput,
   });
 
   final String workspace;
   final String python;
   final List<String> requirements;
   final List<BlockVariable> variables;
+  final bool usesConsoleInput;
 
   factory BlockProgramSnapshot.fromBridgeMessage(String message) {
     if (utf8.encode(message).length >
@@ -53,6 +55,7 @@ class BlockProgramSnapshot {
     final python = decoded['python'];
     final requirements = decoded['requirements'] ?? const <Object?>[];
     final variables = decoded['variables'] ?? const <Object?>[];
+    final usesConsoleInput = decoded['usesConsoleInput'] ?? false;
     if (workspace is! String ||
         python is! String ||
         requirements is! List ||
@@ -62,6 +65,7 @@ class BlockProgramSnapshot {
                 .hasMatch(value)) ||
         requirements.toSet().length != requirements.length ||
         variables is! List ||
+        usesConsoleInput is! bool ||
         variables.length > 100 ||
         !_validVariables(variables)) {
       throw const FormatException('Projeto de blocos inválido.');
@@ -82,6 +86,7 @@ class BlockProgramSnapshot {
         requirements.cast<String>().toList()..sort(),
       ),
       variables: List.unmodifiable(_parseVariables(variables)),
+      usesConsoleInput: usesConsoleInput,
     );
   }
 }

@@ -17,6 +17,7 @@ void main() {
         'workspace': workspace,
         'python': 'while True:\n    pass\n',
         'requirements': ['oled-pintor@1.1.0'],
+        'usesConsoleInput': true,
         'variables': [
           {'name': 'contador', 'type': 'Number'},
           {'name': 'mensagem', 'type': 'String'},
@@ -27,6 +28,7 @@ void main() {
     expect(snapshot.workspace, workspace);
     expect(snapshot.python, 'while True:\n    pass\n');
     expect(snapshot.requirements, ['oled-pintor@1.1.0']);
+    expect(snapshot.usesConsoleInput, isTrue);
     expect(
       snapshot.variables.map((variable) => variable.name),
       ['contador', 'mensagem'],
@@ -112,5 +114,6 @@ void main() {
 
     expect(snapshot.variables.single.name, 'contador');
     expect(snapshot.variables.single.type, BlockVariableType.number);
+    expect(snapshot.usesConsoleInput, isFalse);
   });
 }
