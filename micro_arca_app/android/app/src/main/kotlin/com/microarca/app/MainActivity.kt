@@ -1,4 +1,4 @@
-package com.example.micro_arca_app
+package com.microarca.app
 
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine

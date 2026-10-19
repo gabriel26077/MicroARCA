@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -5,8 +7,19 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val uploadKeyFile = file("${System.getProperty("user.home")}/.microarca/play-upload.properties")
+val uploadKey = Properties()
+if (gradle.startParameter.taskNames.any { it.contains("Release", ignoreCase = true) } &&
+    !uploadKeyFile.isFile
+) {
+    throw GradleException("Chave de publicação ausente: $uploadKeyFile")
+}
+if (uploadKeyFile.isFile) {
+    uploadKeyFile.inputStream().use { uploadKey.load(it) }
+}
+
 android {
-    namespace = "com.example.micro_arca_app"
+    namespace = "com.microarca.app"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -20,8 +33,7 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.micro_arca_app"
+        applicationId = "com.microarca.app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = 24
@@ -30,11 +42,22 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (uploadKeyFile.isFile) {
+            create("upload") {
+                storeFile = file(uploadKey.getProperty("storeFile"))
+                storePassword = uploadKey.getProperty("storePassword")
+                keyAlias = uploadKey.getProperty("keyAlias")
+                keyPassword = uploadKey.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            if (uploadKeyFile.isFile) {
+                signingConfig = signingConfigs.getByName("upload")
+            }
         }
     }
 }

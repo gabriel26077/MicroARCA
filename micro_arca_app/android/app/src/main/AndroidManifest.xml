@@ -8,7 +8,7 @@
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
 
     <application
-        android:label="micro_arca_app"
+        android:label="MicroARCA"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         
