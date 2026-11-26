@@ -9,6 +9,10 @@ O histórico de versões está em [release_notes](micro_arca_app/release_notes/)
 Consulte os [testes automatizados](docs/testes-automatizados.md) e as
 [demonstrações com fotos, exemplos e vídeos](https://github.com/gabriel26077/MicroARCA-demonstracoes).
 
+O catálogo de bibliotecas está em [SistemaMicroARCA](https://github.com/gabriel26077/SistemaMicroARCA).
+Os créditos do protótipo coletivo e da continuidade estão em [AUTHORS.md](AUTHORS.md).
+Os avisos dos componentes externos estão em [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
 > ⚠️ **Nota:** Este projeto encontra-se atualmente em fase de **MVP (Mínimo Produto Viável)**.
 
 O **ProjetoARCA** (**A**prendizado, **R**obótica e **C**omputação **A**cessível) é uma iniciativa que nasceu para democratizar o ensino de robótica e programação em escolas. 
