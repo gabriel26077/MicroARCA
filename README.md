@@ -13,6 +13,17 @@ O catálogo de bibliotecas está em [SistemaMicroARCA](https://github.com/gabrie
 Os créditos do protótipo coletivo e da continuidade estão em [AUTHORS.md](AUTHORS.md).
 Os avisos dos componentes externos estão em [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
+## Licença
+
+O código próprio do MicroARCA e sua documentação de software estão disponíveis
+sob a [licença MIT](LICENSE), com os créditos do protótipo coletivo preservados
+em [AUTHORS.md](AUTHORS.md). A licença permite uso, modificação e redistribuição,
+inclusive comercial, mantendo os avisos de autoria e licença.
+
+Os componentes de terceiros conservam suas próprias licenças: Blockly sob
+Apache 2.0 e Fira Code sob SIL Open Font License 1.1, conforme os
+[avisos de terceiros](THIRD_PARTY_NOTICES.md).
+
 > ⚠️ **Nota:** Este projeto encontra-se atualmente em fase de **MVP (Mínimo Produto Viável)**.
 
 O **ProjetoARCA** (**A**prendizado, **R**obótica e **C**omputação **A**cessível) é uma iniciativa que nasceu para democratizar o ensino de robótica e programação em escolas. 

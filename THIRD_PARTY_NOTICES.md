@@ -3,6 +3,9 @@
 Os componentes externos mantêm suas próprias licenças e atribuições. Os avisos
 deste arquivo complementam, sem substituir, os textos de licença incluídos.
 
+A [licença MIT do MicroARCA](LICENSE) aplica-se ao código próprio e à sua
+documentação de software. Ela não relicencia os componentes externos listados abaixo.
+
 ## Blockly
 
 Os arquivos distribuídos em `micro_arca_app/assets/blockly/` incluem o Blockly,
