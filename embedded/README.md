@@ -11,7 +11,7 @@ compatível com sua placa e flash. A referência das APIs usadas é o MicroPytho
 1.26.0; é necessário ter `bluetooth`, `hashlib.sha256`, `os.dupterm`,
 `os.dupterm_notify` e `os.sync`. O filesystem padrão LittleFS é o alvo do upload
 com substituição atômica. A compatibilidade deve ser conferida na placa e nos
-Androids utilizados; os [registros de demonstração](https://github.com/gabriel26077/MicroARCA-demonstracoes)
+Androids utilizados; os [registros de demonstração](../demonstracoes/README.md)
 identificam exemplos e configurações já utilizados.
 
 Copie estes cinco arquivos para a **raiz** da placa:

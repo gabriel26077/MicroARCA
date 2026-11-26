@@ -1,0 +1,117 @@
+[
+  {
+    "arquivo": "imagens/interface/projetos.jpeg",
+    "origem_no_material_do_tcc": "figuras/interface-1.2.3/lista-de-projetos.jpeg",
+    "sha256": "71125c070f5f1d543035c0bb49939687343d196cc619129d83a11dce05a2d06d"
+  },
+  {
+    "arquivo": "imagens/interface/kit-conectado.jpeg",
+    "origem_no_material_do_tcc": "figuras/interface-1.2.3/kit-conectado.jpeg",
+    "sha256": "7c8368a1b43958d81e6dcaad651e0f41e9f5d683c2f17aa3fcc3c535811a6580"
+  },
+  {
+    "arquivo": "imagens/interface/catalogo.jpeg",
+    "origem_no_material_do_tcc": "figuras/catalogo/print-do-catalogo-de-bibliotecas.jpeg",
+    "sha256": "8e08cb29cb856844413fde16c7e234c855745200a8fd73d7f014aca042208faa"
+  },
+  {
+    "arquivo": "imagens/python/entrada.jpeg",
+    "origem_no_material_do_tcc": "figuras/modularizacao/codigo-input-digite-seu-nome.jpeg",
+    "sha256": "a4b7f00d3379e0a8b391cfd6fa8f94bfb48cc63e7d31e3487ba4d37e3f1ebeb5"
+  },
+  {
+    "arquivo": "imagens/python/console.jpeg",
+    "origem_no_material_do_tcc": "figuras/modularizacao/codigo-com-input-passando-hanna-dando-certo.jpeg",
+    "sha256": "7189279cdc7bdf437ed7bab7294a89291e8ed17c36ce516f35ef7bc770451a88"
+  },
+  {
+    "arquivo": "imagens/python/erro.jpeg",
+    "origem_no_material_do_tcc": "figuras/modularizacao/erro-no-console-indicando-o-erro.jpeg",
+    "sha256": "3becb1484d0e2e2c7526ef1c5521346422e83945a3480911316ff58cead541c6"
+  },
+  {
+    "arquivo": "imagens/semaforo/montagem.jpeg",
+    "origem_no_material_do_tcc": "figuras/semaforo/led-verde.jpeg",
+    "sha256": "bc93bdb1b2e0db253d15b508f835759f8431ea59724d7c1fb2905aa08edf1936"
+  },
+  {
+    "arquivo": "imagens/semaforo/ligacoes.png",
+    "origem_no_material_do_tcc": "figuras/semaforo/esquema-wokwi.png",
+    "sha256": "645595b2defb5917ad9ff5b873ad46457839cb139b23284e8267144e634229bf"
+  },
+  {
+    "arquivo": "imagens/botao/ligacoes.png",
+    "origem_no_material_do_tcc": "figuras/botao/montagem-wokwi.png",
+    "sha256": "2a2b41913413e1ca63fef2bdafe783e800750212f2e2a261fd11118ee913cb3c"
+  },
+  {
+    "arquivo": "imagens/botao/blocos.jpeg",
+    "origem_no_material_do_tcc": "figuras/botao/codigo-em-blocos-leitura-do-botao-log-console.jpeg",
+    "sha256": "411a573ac9d56d00f8926c1f858c6033490b0c89e1b5a9269539124d930d0729"
+  },
+  {
+    "arquivo": "imagens/botao/console.jpeg",
+    "origem_no_material_do_tcc": "figuras/botao/print-do-console-com-leitura-botao.jpeg",
+    "sha256": "c5cde05d587c5a052e7e69d6cbd09bc52ac9debed3e6861ba565eb960547297b"
+  },
+  {
+    "arquivo": "imagens/semaforo-botao/blocos.jpeg",
+    "origem_no_material_do_tcc": "figuras/semaforo-botao/codigo-em-blocos-semaforo-inteligente.jpeg",
+    "sha256": "efaffeca01dc17a5e2c122467f7f56f1241f2bba8634c0942dd5544ad0dd8c79"
+  },
+  {
+    "arquivo": "imagens/semaforo-botao/montagem.png",
+    "origem_no_material_do_tcc": "figuras/semaforo-botao/foto-da-montagem-real-do-semaforo-inteligente.png",
+    "sha256": "3d89483b238e05983c3eaf728ada8b71ed0f91e1621410c20b201d850e3ffbbe"
+  },
+  {
+    "arquivo": "imagens/semaforo-botao/ligacoes.png",
+    "origem_no_material_do_tcc": "figuras/semaforo-botao/montagem-wokwi.png",
+    "sha256": "1bb309860b01374bf4075761fb668ba1c2dbfbecd5c87d064bbc4058ee050af0"
+  },
+  {
+    "arquivo": "imagens/oled/montagem.jpeg",
+    "origem_no_material_do_tcc": "figuras/oled/montagem-real.jpeg",
+    "sha256": "5ef941a50b966657cff3053ea6520c90e3f54a6df63fb7cb6c0ea3a5554bbcef"
+  },
+  {
+    "arquivo": "imagens/oled/ligacoes.png",
+    "origem_no_material_do_tcc": "figuras/oled/esquema-wokwi.png",
+    "sha256": "9181dd66af6189b0e2d98995f1196c8111cc2332f0170a597fa1450c20d4828a"
+  },
+  {
+    "arquivo": "imagens/oled/blocos.jpeg",
+    "origem_no_material_do_tcc": "figuras/oled/blocos-exemplo.jpeg",
+    "sha256": "966f27521d50836578f84791d57be008d226011125eae506d07ba1866c3a8b57"
+  },
+  {
+    "arquivo": "exemplos/semaforo-com-botao/main.py",
+    "origem_no_material_do_tcc": "evidencias/semaforo-conversao-2026-11-11/codigo-convertido-semaforo-botao.py",
+    "sha256": "bb89eb68ab35644876655f039db13ca42dc638e61bea289409feb384d1110155"
+  },
+  {
+    "arquivo": "exemplos/projeto-python/main.py",
+    "origem_no_material_do_tcc": "evidencias/projeto-python-2026-11-11/main-transcrito.py",
+    "sha256": "839e86b1c7e170a3ca1f3026c86adec7774fc3271ef5bd2ada513926d65d07f9"
+  },
+  {
+    "arquivo": "exemplos/projeto-python/minha_lib.py",
+    "origem_no_material_do_tcc": "evidencias/projeto-python-2026-11-11/minha_lib-transcrito.py",
+    "sha256": "c75366f1aa71f812d8c88acf2fef8ebce549d278f3eb4b7a9c1aa681ac62b35e"
+  },
+  {
+    "arquivo": "exemplos/tela-oled/main.py",
+    "origem_no_material_do_tcc": "evidencias/oled/codigo-gerado.py",
+    "sha256": "96c45f7a0fc6d8866b1c0dba013f0c4f72c28b7d6615309c148e059b42267531"
+  },
+  {
+    "arquivo": "imagens/historico/primeiro-robo.jpeg",
+    "origem_publica": "https://github.com/gabriel26077/ProjetoARCA/blob/2e4253d4e262b52fde8fee685531e58340e39f50/pictures/primeiro-robo.jpeg",
+    "sha256": "b2cf56a62c541a2670506dd35267d7198a7fefa55324429d368d532634434ce4"
+  },
+  {
+    "arquivo": "imagens/historico/equipe-fundadora.jpeg",
+    "origem_publica": "https://github.com/gabriel26077/ProjetoARCA/blob/2e4253d4e262b52fde8fee685531e58340e39f50/pictures/equipe-fundadora.jpeg",
+    "sha256": "be120fb0f9c88dfb9e55f106de70893fb4dc4e5b844547540fa1cd080e71e386"
+  }
+]

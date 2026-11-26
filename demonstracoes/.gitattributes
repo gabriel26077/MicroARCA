@@ -1,0 +1,2 @@
+# Preserve os bytes dos programas registrados, inclusive as quebras de linha.
+*.py -text whitespace=cr-at-eol
