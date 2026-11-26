@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 
 import 'ble_transport.dart';
+import 'companion_devices.dart';
 import 'input_protocol.dart';
 import 'library_storage.dart';
 import 'project_storage.dart';
@@ -138,6 +139,41 @@ class MicroPythonREPLService extends ChangeNotifier {
 
   late final FlutterReactiveBle _ble = FlutterReactiveBle();
   static const _permissions = MethodChannel('arca/bluetooth_permissions');
+  final _companion = CompanionDevices();
+  KitDiscoveryMode? _discoveryMode;
+  int? _companionPickerEpoch;
+  int? _bluetoothEnableEpoch;
+  bool get usesCompanionDiscovery =>
+      _discoveryMode == KitDiscoveryMode.companion;
+
+  Future<List<AssociatedKit>> associatedKits() async {
+    _discoveryMode = await _companion.mode();
+    notifyListeners();
+    return usesCompanionDiscovery ? _companion.list() : [];
+  }
+
+  Future<void> forgetKit(AssociatedKit kit) async {
+    if (state == KitState.scanning || state == KitState.connecting) {
+      throw StateError(
+          'Termine a seleção ou conexão antes de esquecer um kit.');
+    }
+    if (device?.id.toUpperCase() == kit.id) await disconnect();
+    await _companion.forget(kit.id);
+    _devices.remove(kit.id);
+    notifyListeners();
+  }
+
+  DiscoveredDevice _associatedDevice(AssociatedKit kit) => DiscoveredDevice(
+        id: kit.id,
+        name: kit.name,
+        serviceData: const {},
+        manufacturerData: Uint8List(0),
+        rssi: 0,
+        serviceUuids: [arcaServiceId],
+      );
+
+  Future<void> connectAssociatedKit(AssociatedKit kit) =>
+      connect(_associatedDevice(kit));
   final _messages = StreamController<String>.broadcast();
   final Map<String, DiscoveredDevice> _devices = {};
   StreamSubscription<DiscoveredDevice>? _scan;
@@ -151,7 +187,7 @@ class MicroPythonREPLService extends ChangeNotifier {
   int _epoch = 0;
   int _inputRequestVersion = 0;
   KitState state = KitState.disconnected;
-  String status = 'Selecione seu kit na aba Kits';
+  String status = 'Selecione seu kit pelo botão Bluetooth';
   DiscoveredDevice? device;
   double progress = 0;
   bool libraryManagerAvailable = false;
@@ -175,13 +211,42 @@ class MicroPythonREPLService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<bool> _checkBluetooth(int epoch) async {
+  Future<bool> _checkBluetooth(int epoch, KitDiscoveryMode mode) async {
     final allowed = await _permissions
         .invokeMethod<bool>('request')
         .then((v) => v ?? false);
     if (epoch != _epoch) return false;
     if (!allowed) {
       throw StateError('Permita o acesso ao Bluetooth para procurar seu kit.');
+    }
+    var adapterState = await _companion.adapterState();
+    if (epoch != _epoch) return false;
+    if (adapterState == 'poweredOff') {
+      _set(state, 'Aguardando ativação do Bluetooth…');
+      _bluetoothEnableEpoch = epoch;
+      bool enabled;
+      try {
+        enabled = await _companion.requestEnable();
+      } finally {
+        if (_bluetoothEnableEpoch == epoch) _bluetoothEnableEpoch = null;
+      }
+      if (epoch != _epoch) return false;
+      if (!enabled) {
+        await disconnect(message: 'Ativação do Bluetooth cancelada.');
+        return false;
+      }
+      adapterState = await _companion.adapterState();
+      if (epoch != _epoch) return false;
+    }
+    if (adapterState != 'ready') {
+      throw StateError(adapterState == 'poweredOff'
+          ? 'Não foi possível ativar o Bluetooth. Tente novamente.'
+          : 'Este celular não oferece suporte a BLE.');
+    }
+    if (mode == KitDiscoveryMode.companion) {
+      // O status do scanner da biblioteca exige permissões de busca que o
+      // CDM dispensa. Aqui verificamos apenas o adaptador e a conexão.
+      return true;
     }
     _adapter ??= _ble.statusStream.listen((value) {
       if (value != BleStatus.ready &&
@@ -227,8 +292,30 @@ class MicroPythonREPLService extends ChangeNotifier {
     _set(KitState.scanning, 'Preparando Bluetooth…');
     try {
       await _closing;
-      if (epoch != _epoch || !await _checkBluetooth(epoch)) return;
       if (epoch != _epoch) return;
+      final mode = await _companion.mode();
+      _discoveryMode = mode;
+      if (epoch != _epoch || !await _checkBluetooth(epoch, mode)) return;
+      if (epoch != _epoch) return;
+      if (mode == KitDiscoveryMode.companion) {
+        _set(KitState.scanning, 'Escolha o kit na janela do Android.');
+        _companionPickerEpoch = epoch;
+        AssociatedKit? selected;
+        try {
+          selected = await _companion.select();
+        } finally {
+          if (_companionPickerEpoch == epoch) _companionPickerEpoch = null;
+        }
+        if (epoch != _epoch) return;
+        if (selected == null) {
+          _set(KitState.disconnected, 'Seleção do kit cancelada.');
+          return;
+        }
+        final kit = _associatedDevice(selected);
+        _devices[kit.id] = kit;
+        await connect(kit);
+        return;
+      }
       _set(KitState.scanning, 'Procurando kits ARCA…');
       _scan = _ble.scanForDevices(
         withServices: [arcaServiceId],
@@ -254,7 +341,19 @@ class MicroPythonREPLService extends ChangeNotifier {
   }
 
   Future<void> stopScan() async {
+    final companionActive =
+        _companionPickerEpoch != null || _bluetoothEnableEpoch != null;
+    var closeChooserFailed = false;
     if (state == KitState.scanning) ++_epoch;
+    if (companionActive) {
+      _companionPickerEpoch = null;
+      _bluetoothEnableEpoch = null;
+      try {
+        await _companion.cancel();
+      } on PlatformException {
+        closeChooserFailed = true;
+      }
+    }
     _scanTimer?.cancel();
     _scanTimer = null;
     final scan = _scan;
@@ -263,9 +362,13 @@ class MicroPythonREPLService extends ChangeNotifier {
     if (state == KitState.scanning) {
       _set(
         KitState.disconnected,
-        _devices.isEmpty
-            ? 'Nenhum kit encontrado. Confira se a placa está ligada e com o firmware BLE.'
-            : 'Selecione seu kit',
+        closeChooserFailed
+            ? 'Busca encerrada. Feche a janela do Android se ela permanecer aberta.'
+            : companionActive
+                ? 'Seleção do kit cancelada.'
+                : _devices.isEmpty
+                    ? 'Nenhum kit encontrado. Confira se a placa está ligada e com o firmware BLE.'
+                    : 'Selecione seu kit',
       );
     }
   }
@@ -279,7 +382,18 @@ class MicroPythonREPLService extends ChangeNotifier {
     final connected = Completer<void>();
     try {
       await _closing;
-      if (epoch != _epoch || !await _checkBluetooth(epoch)) return;
+      if (epoch != _epoch) return;
+      final mode = await _companion.mode();
+      _discoveryMode = mode;
+      if (epoch != _epoch || !await _checkBluetooth(epoch, mode)) return;
+      if (mode == KitDiscoveryMode.companion) {
+        final associated = await _companion.isAssociated(selected.id);
+        if (epoch != _epoch) return;
+        if (!associated) {
+          throw StateError(
+              'Selecione e autorize o kit pela janela do Android.');
+        }
+      }
       if (epoch != _epoch) return;
       _connection = _ble
           .connectToDevice(

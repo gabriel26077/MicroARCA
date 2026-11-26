@@ -64,10 +64,35 @@
       .blocklyScrollbarVertical {
         display: none;
       }
+      :root { --workspace: #f4fafb; --panel: #ffffff; --ink: #183f46; }
+      body.dark { --workspace: #182227; --panel: #253238; --ink: #e0f2f1; }
+      html, body, #workspace { background: var(--workspace); }
+      #drag-loupe {
+        position: fixed; top: 84px; right: 12px; width: 200px;
+        border: 2px solid #00a9bd; border-radius: 14px; overflow: hidden;
+        background: var(--workspace); color: var(--ink);
+        box-shadow: 0 4px 16px #0005; z-index: 100; pointer-events: none;
+      }
+      #drag-loupe[hidden] { display: none; }
+      #drag-loupe .caption {
+        padding: 5px 8px; background: var(--panel);
+        font: 600 12px system-ui, sans-serif;
+      }
+      #drag-loupe .view { position: relative; height: 132px; }
+      #drag-loupe svg { display: block; }
+      #drag-loupe .aim {
+        position: absolute; left: 50%; top: 50%; width: 22px; height: 22px;
+        transform: translate(-50%, -50%); border: 2px solid #00cfe8;
+        border-radius: 50%; box-shadow: 0 0 0 2px #0005;
+      }
     </style>
   </head>
   <body>
     <div id="workspace" aria-label="Editor de blocos MicroARCA"></div>
+    <div id="drag-loupe" hidden aria-hidden="true">
+      <div class="caption">Arraste para encaixar · 2×</div>
+      <div class="view"><div class="aim"></div></div>
+    </div>
     <script src="blockly_compressed.js"></script>
     <script src="blocks_compressed.js"></script>
     <script src="python_compressed.js"></script>
@@ -77,6 +102,18 @@
       "use strict";
 
       Blockly.defineBlocksWithJsonArray([
+        {
+          type: "microarca_while",
+          message0: "repetir enquanto %1",
+          args0: [{ type: "input_value", name: "BOOL", check: "Boolean" }],
+          message1: "fazer %1",
+          args1: [{ type: "input_statement", name: "DO" }],
+          previousStatement: null,
+          nextStatement: null,
+          style: "microarca_loop_blocks",
+          tooltip: "Verifica a condição antes de cada repetição. Quando ela for falsa, continua nos próximos blocos.",
+          helpUrl: "",
+        },
         {
           type: "microarca_forever",
           message0: "repetir para sempre %1 %2",
@@ -295,6 +332,12 @@
 
       const pythonGenerator = python.pythonGenerator;
 
+      pythonGenerator.forBlock.microarca_while = function (block, generator) {
+        const condition = generator.valueToCode(block, "BOOL", python.Order.NONE) || "False";
+        const body = generator.statementToCode(block, "DO") || generator.PASS;
+        return `while ${condition}:\n${body}`;
+      };
+
       pythonGenerator.forBlock.microarca_forever = function (block, generator) {
         const body = generator.statementToCode(block, "DO") || generator.PASS;
         return `while True:\n${body}`;
@@ -353,6 +396,7 @@
       const coreBlockTypes = new Set([
         ...MicroArcaIO.types,
         "microarca_forever",
+        "microarca_while",
         "microarca_pin_mode",
         "microarca_pin_write",
         "microarca_wait",
@@ -626,10 +670,133 @@
         }
       }
 
-      function handleBlockDrag(event) {
-        if (event?.type === Blockly.Events.BLOCK_DRAG && event.isStart) {
-          cancelLongPress();
+      const darkTheme = Blockly.Theme.defineTheme("microarca-dark", {
+        base: theme,
+        componentStyles: {
+          workspaceBackgroundColour: "#182227",
+          toolboxBackgroundColour: "#253238",
+          toolboxForegroundColour: "#e0f2f1",
+          flyoutBackgroundColour: "#253238",
+          flyoutForegroundColour: "#e0f2f1",
+          flyoutOpacity: 1,
+          scrollbarColour: "#607d8b",
+          insertionMarkerColour: "#00e5ff",
+          insertionMarkerOpacity: 0.5,
+          cursorColour: "#00e5ff",
+        },
+      });
+
+      function setDarkMode(dark) {
+        document.body.classList.toggle("dark", Boolean(dark));
+        workspace.setTheme(dark ? darkTheme : theme);
+      }
+
+      // A lupa replica o SVG sem alterar escala, posições ou conexões reais.
+      // O destaque vem do próprio Blockly, que decide o encaixe compatível.
+      const loupe = document.getElementById("drag-loupe");
+      const loupeView = loupe.querySelector(".view");
+      let dragActive = false;
+      let loupeEnabled = true;
+      let loupeFrame = null;
+      let lastLoupeTime = 0;
+      let dragPointer = null;
+
+      function setLoupeEnabled(enabled) {
+        loupeEnabled = Boolean(enabled);
+        if (!loupeEnabled) hideLoupe();
+      }
+
+      function hideLoupe() {
+        dragActive = false;
+        loupe.hidden = true;
+        if (loupeFrame !== null) cancelAnimationFrame(loupeFrame);
+        loupeFrame = null;
+        loupeView.querySelector("svg")?.remove();
+      }
+
+      function drawLoupe(time) {
+        if (!dragActive || !loupeEnabled) return;
+        loupeFrame = requestAnimationFrame(drawLoupe);
+        // Limita cópias do SVG para preservar fluidez em projetos maiores.
+        if (time - lastLoupeTime < 66 || !dragPointer) return;
+        lastLoupeTime = time;
+        const original = workspace.getParentSvg();
+        const highlight = original.querySelector(
+          ".blocklyHighlightedConnectionPathVisible",
+        );
+        const box = highlight?.getBoundingClientRect();
+        const focus = box && box.width + box.height > 0
+          ? { x: box.left + box.width / 2, y: box.top + box.height / 2 }
+          : dragPointer;
+        const matrix = original.getScreenCTM();
+        if (!matrix) return;
+        const point = new DOMPoint(focus.x, focus.y).matrixTransform(matrix.inverse());
+        const clone = original.cloneNode(true);
+        clone.classList.add(...[...original.parentElement.classList].filter(
+          name => name.endsWith('-renderer') || name.endsWith('-theme'),
+        ));
+        // O bloco arrastado fica em outro SVG; inclui sua camada na mesma
+        // coordenada da cena para mostrar o bloco chegando ao encaixe.
+        const surface = original.parentElement.querySelector('.blocklyBlockDragSurface');
+        const surfaceMatrix = surface?.getScreenCTM();
+        if (surfaceMatrix) {
+          const relative = matrix.inverse().multiply(surfaceMatrix);
+          const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+          group.setAttribute('transform', `matrix(${relative.a} ${relative.b} ${relative.c} ${relative.d} ${relative.e} ${relative.f})`);
+          for (const child of surface.children) group.append(child.cloneNode(true));
+          clone.append(group);
         }
+        // IDs próprios evitam colisão com o workspace interativo.
+        const ids = new Map();
+        for (const node of clone.querySelectorAll("[id]")) {
+          ids.set(node.id, `loupe-${node.id}`);
+          node.id = ids.get(node.id);
+        }
+        for (const node of [clone, ...clone.querySelectorAll("*")]) {
+          node.removeAttribute("data-id");
+          for (const attribute of [...node.attributes]) {
+            if (attribute.value.includes("url(#")) {
+              node.setAttribute(attribute.name, attribute.value.replace(
+                /url\(#([^)]*)\)/g, (match, id) => `url(#${ids.get(id) || id})`,
+              ));
+            }
+          }
+        }
+        clone.setAttribute("width", "200");
+        clone.setAttribute("height", "132");
+        clone.setAttribute("viewBox", `${point.x - 50} ${point.y - 33} 100 66`);
+        clone.style.width = "200px";
+        clone.style.height = "132px";
+        clone.style.position = "static";
+        loupeView.querySelector("svg")?.remove();
+        loupeView.prepend(clone);
+        loupe.querySelector(".caption").textContent = highlight
+          ? "Encaixe destacado · 2×" : "Arraste para encaixar · 2×";
+        // Mant?m a lupa longe do dedo, inclusive na parte superior da tela.
+        loupe.style.right = dragPointer.x > innerWidth / 2 ? "auto" : "12px";
+        loupe.style.left = dragPointer.x > innerWidth / 2 ? "12px" : "auto";
+        loupe.hidden = false;
+      }
+
+      document.addEventListener("pointerdown", (event) => {
+        if (!event.isPrimary) { hideLoupe(); return; }
+        dragPointer = { x: event.clientX, y: event.clientY };
+      }, true);
+      document.addEventListener("pointermove", (event) => {
+        if (event.isPrimary) dragPointer = { x: event.clientX, y: event.clientY };
+      }, true);
+      for (const type of ["pointerup", "pointercancel"]) {
+        document.addEventListener(type, hideLoupe, true);
+      }
+      window.addEventListener("blur", hideLoupe);
+
+      function handleBlockDrag(event) {
+        if (event?.type !== Blockly.Events.BLOCK_DRAG) return;
+        if (!event.isStart) { hideLoupe(); return; }
+        cancelLongPress();
+        if (!loupeEnabled) return;
+        dragActive = true;
+        if (loupeFrame === null) loupeFrame = requestAnimationFrame(drawLoupe);
       }
 
       // On touch devices Blockly edits text and number fields through
@@ -1033,6 +1200,11 @@
           case "microarca_wait":
             attachShadow(block, "SECONDS", "math_number", { NUM: 1 });
             break;
+          case "microarca_while":
+            attachShadow(block, "BOOL", "microarca_logic_level", {
+              LEVEL: "LOW",
+            });
+            break;
           case "math_arithmetic":
           case "logic_compare":
             attachShadow(block, "A", "math_number", { NUM: 0 });
@@ -1361,6 +1533,8 @@
 
       window.addEventListener("resize", () => Blockly.svgResize(workspace));
       window.microArca = {
+        setLoupeEnabled,
+        setDarkMode,
         registerLibraryManifests,
         createDefault,
         loadWorkspace,

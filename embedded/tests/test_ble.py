@@ -108,6 +108,32 @@ class BleTests(unittest.TestCase):
         self.assertEqual(self.ble.disconnected, [8])
         self.assertEqual(self.stream._conn, 7)
 
+    def test_hello_restarts_session_on_existing_connection(self):
+        # O Android pode abrir outra sessão GATT sem um novo evento CONNECT.
+        self.assertFalse(self.stream._handshake)
+        self.write_control(b'R')
+        self.drain()
+        self.assertEqual(self.ble.sent, [b'ARCA-BLE/1\n'])
+        self.assertTrue(self.stream._handshake)
+        self.stream._irq(20, (7, 11, 0))
+        self.write_control(b'A')
+        self.assertFalse(self.stream._handshake)
+        self.ble.values[10] = b'\x03'
+        self.stream._irq(3, (7, 10))
+        self.notified.assert_called_once_with(None)
+
+    def test_hello_restart_waits_for_pending_output_confirmation(self):
+        self.stream.write(b'contador\n')
+        self.drain()
+        self.write_control(b'R')
+        self.assertEqual(self.ble.sent, [b'contador\n'])
+        self.assertEqual(self.stream._inflight, len(b'contador\n'))
+        self.stream._irq(20, (7, 11, 0))
+        self.write_control(b'R')
+        self.drain()
+        self.assertEqual(self.ble.sent, [b'contador\n', b'ARCA-BLE/1\n'])
+        self.assertTrue(self.stream._handshake)
+
     def test_failed_indication_invalidates_session(self):
         self.stream.write(b'hello')
         self.drain()

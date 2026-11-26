@@ -274,6 +274,8 @@ class _NewProjectDialogState extends State<_NewProjectDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Novo projeto'),
+      scrollable: true,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,

@@ -1,3 +1,4 @@
+import 'package:code_text_field/code_text_field.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:micro_arca_app/pages/projects_page.dart';
@@ -18,6 +19,37 @@ void main() {
   testWidgets('lista vazia convida a criar um projeto', (tester) async {
     await pumpProjects(tester, MemoryProjectStorage());
     expect(find.textContaining('Nenhum projeto ainda'), findsOneWidget);
+  });
+
+  testWidgets('novo projeto cabe em tela pequena com teclado aberto',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.viewInsets = const FakeViewPadding(bottom: 320);
+    tester.view.padding = const FakeViewPadding(top: 24);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetViewInsets);
+    addTearDown(tester.view.resetPadding);
+    final storage = MemoryProjectStorage();
+    await pumpProjects(tester, storage);
+    await tester.tap(find.text('Novo'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await tester.enterText(find.byType(TextField), 'blink');
+    await tester.ensureVisible(find.text('Python'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Python'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        'blink');
+    expect(tester.getRect(find.text('Cancelar')).bottom, lessThanOrEqualTo(320));
+    expect(tester.getRect(find.text('Criar')).bottom, lessThanOrEqualTo(320));
+    await tester.tap(find.text('Cancelar'));
+    await tester.pumpAndSettle();
+    expect(find.text('Novo projeto'), findsNothing);
+    expect(storage.projects, isEmpty);
   });
 
   testWidgets('cria projeto Python, edita arquivos e volta à lista',
@@ -42,6 +74,30 @@ void main() {
     final project = storage.projects.values.single;
     expect(project.kind, ProjectKind.python);
     expect(project.files['main.py'], defaultPythonMain);
+
+    // Linha longa preserva o texto e permite deslocamento horizontal.
+    final code = tester.widget<CodeField>(find.byType(CodeField));
+    expect(code.wrap, isFalse);
+    final longLine = 'print("${'a' * 180}")';
+    code.controller.text = longLine;
+    await tester.pumpAndSettle();
+    final horizontal = find.descendant(
+      of: find.byType(CodeField),
+      matching: find.byWidgetPredicate((widget) =>
+          widget is SingleChildScrollView &&
+          widget.scrollDirection == Axis.horizontal),
+    );
+    expect(horizontal, findsOneWidget);
+    await tester.drag(horizontal, const Offset(-250, 0));
+    await tester.pumpAndSettle();
+    final scrollable = tester.state<ScrollableState>(find
+        .descendant(of: horizontal, matching: find.byType(Scrollable))
+        .first);
+    expect(scrollable.position.maxScrollExtent, greaterThan(250));
+    scrollable.position.jumpTo(250);
+    await tester.pumpAndSettle();
+    expect(scrollable.position.pixels, 250);
+    expect(code.controller.text, longLine);
 
     // Novo módulo.
     await tester.tap(find.widgetWithText(ActionChip, 'Arquivo'));

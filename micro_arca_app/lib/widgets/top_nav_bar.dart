@@ -13,17 +13,22 @@ class TopNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final light = Theme.of(context).brightness == Brightness.light;
     return LayoutBuilder(
       builder: (context, constraints) {
-        final showLabels = constraints.maxWidth >= 390;
+        const showLabels = true;
         return Container(
           margin: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 20.0),
           padding: const EdgeInsets.all(4.0),
           decoration: BoxDecoration(
-            color: const Color.fromARGB(248, 219, 250, 255),
+            color: light
+                ? const Color.fromARGB(248, 219, 250, 255)
+                : Theme.of(context).colorScheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(50.0),
             border: Border.all(
-              color: const Color.fromARGB(248, 183, 245, 255),
+              color: light
+                  ? const Color.fromARGB(248, 183, 245, 255)
+                  : Theme.of(context).colorScheme.outlineVariant,
               width: 1,
             ),
             boxShadow: const [
@@ -53,8 +58,8 @@ class TopNavBar extends StatelessWidget {
                 onTap: () => onTap(1),
               ),
               _NavTab(
-                text: 'Kits',
-                icon: Icons.bluetooth,
+                text: 'Bibliotecas',
+                icon: Icons.local_library_outlined,
                 showLabel: showLabels,
                 isSelected: selectedIndex == 2,
                 onTap: () => onTap(2),
@@ -86,8 +91,15 @@ class _NavTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const Color activeColor = Color.fromARGB(255, 7, 207, 233);
-    final Color inactiveColor = Colors.grey[700]!;
+    final light = Theme.of(context).brightness == Brightness.light;
+    final activeColor = light
+        ? const Color.fromARGB(255, 7, 207, 233)
+        : Theme.of(context).colorScheme.primary;
+    final inactiveColor = light
+        ? Colors.grey[700]!
+        : Theme.of(context).colorScheme.onSurfaceVariant;
+    final activeForeground =
+        light ? Colors.white : Theme.of(context).colorScheme.onPrimary;
 
     return Expanded(
       child: Tooltip(
@@ -102,29 +114,29 @@ class _NavTab extends StatelessWidget {
               duration: const Duration(milliseconds: 300),
               curve: Curves.ease,
               padding:
-                  const EdgeInsets.symmetric(vertical: 10.0, horizontal: 12.0),
+                  const EdgeInsets.symmetric(vertical: 8.0, horizontal: 6.0),
               decoration: BoxDecoration(
                 color: isSelected ? activeColor : Colors.transparent,
                 borderRadius: BorderRadius.circular(50.0),
               ),
-              child: Row(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(
                     icon,
-                    color: isSelected ? Colors.white : inactiveColor,
+                    color: isSelected ? activeForeground : inactiveColor,
                     size: 20,
                   ),
                   if (showLabel) ...[
-                    const SizedBox(width: 8),
-                    Flexible(
-                      child: Text(
-                        text,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: isSelected ? Colors.white : inactiveColor,
-                          fontWeight: FontWeight.bold,
-                        ),
+                    const SizedBox(height: 4),
+                    Text(
+                      text,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: isSelected ? activeForeground : inactiveColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
                       ),
                     ),
                   ],

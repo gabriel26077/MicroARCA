@@ -14,7 +14,7 @@ class ProjectDeployer {
   /// Mensagem para quando o kit não pode receber projetos agora, ou null.
   String? get unavailableReason {
     if (!service.isConnected) {
-      return 'Conecte o ESP32 na aba Kits.';
+      return 'Conecte o kit pelo botão Bluetooth da tela inicial.';
     }
     if (!service.workspaceManagerAvailable) {
       return 'Atualize arca_files.py no kit para enviar projetos.';

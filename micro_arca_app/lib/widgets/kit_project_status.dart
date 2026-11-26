@@ -39,7 +39,7 @@ class KitProjectStatus extends StatelessWidget {
           Icons.developer_board_off_outlined,
           service.isConnected
               ? 'Executar envia o projeto ao kit e roda agora.'
-              : 'Conecte o kit na aba Kits para executar.',
+              : 'Conecte o kit pelo botão Bluetooth da tela inicial.',
         ),
       KitProjectRelation.none => (
           Icons.power_settings_new,

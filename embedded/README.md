@@ -10,8 +10,9 @@ Use uma versão estável do [MicroPython ESP32_GENERIC](https://micropython.org/
 compatível com sua placa e flash. A referência das APIs usadas é o MicroPython
 1.26.0; é necessário ter `bluetooth`, `hashlib.sha256`, `os.dupterm`,
 `os.dupterm_notify` e `os.sync`. O filesystem padrão LittleFS é o alvo do upload
-com substituição atômica. Esta implementação ainda precisa ser validada no kit
-físico e nos Androids que serão usados em aula.
+com substituição atômica. A compatibilidade deve ser conferida na placa e nos
+Androids utilizados; os [registros de demonstração](https://github.com/gabriel26077/MicroARCA-demonstracoes)
+identificam exemplos e configurações já utilizados.
 
 Copie estes cinco arquivos para a **raiz** da placa:
 
@@ -64,9 +65,12 @@ flutter pub get
 flutter run
 ```
 
-1. Abra **Kits → Procurar kits** e conceda a permissão solicitada.
-2. Android 12+ pede dispositivos próximos; Android 7–11 precisa da permissão de
-   localização para descobrir BLE e pode exigir que a localização esteja ligada.
+1. Toque no **botão Bluetooth** da tela inicial e escolha **Procurar kits**.
+   Para reencontrar uma associação anterior, use **Kits associados**.
+2. Android 12+ pede acesso a dispositivos próximos. Android 8+ utiliza o seletor
+   do sistema, sem solicitar permissão de localização; o serviço de localização
+   pode precisar estar ligado. Android 7/7.1 usa a busca BLE com permissão de
+   localização. Veja o [fluxo de associação](../docs/companion-device-manager.md).
 3. Selecione o nome da placa. Não é necessário parear primeiro nas configurações
    do Android. Um kit aceita apenas um celular por vez.
 4. Em **Projetos**, crie um projeto de **Blocos** ou de **Python**. Projetos
@@ -75,8 +79,8 @@ flutter run
 5. **Executar** envia o projeto ao kit e roda agora. `/app` passa a conter
    exatamente os arquivos do projeto (o Python gerado, no caso de blocos).
    **Gravar no kit** faz o mesmo e deixa o projeto rodando ao ligar.
-6. Veja a saída em **Console**. **Parar** fica no editor do projeto.
-7. Em **Kits → Bibliotecas**, consulte o catálogo oficial em
+6. Veja a saída em **Console** e use **Interromper programa** para solicitar a parada.
+7. Na aba **Bibliotecas**, consulte o catálogo oficial em
    `https://libs-microarca.traceedu.com.br/v1/catalog.json`. Pacotes e todas as
    dependências ficam em `/lib` e são baixados e verificados antes de o ESP32
    ser modificado. Eles não aparecem entre os arquivos editáveis do projeto.

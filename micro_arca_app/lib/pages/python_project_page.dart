@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:code_text_field/code_text_field.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_highlight/themes/a11y-light.dart';
+import 'package:flutter_highlight/themes/a11y-dark.dart';
 import 'package:highlight/languages/python.dart';
 
 import '../services/micropython_repl_service.dart';
@@ -283,21 +284,28 @@ class _PythonProjectPageState extends State<PythonProjectPage> {
                   Expanded(
                     child: DecoratedBox(
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: Theme.of(context).brightness == Brightness.light
+                            ? Colors.white
+                            : Theme.of(context).colorScheme.surface,
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(12),
                         child: SingleChildScrollView(
                           child: CodeTheme(
-                            data: const CodeThemeData(styles: a11yLightTheme),
+                            data: CodeThemeData(
+                              styles: Theme.of(context).brightness ==
+                                      Brightness.dark
+                                  ? a11yDarkTheme
+                                  : a11yLightTheme,
+                            ),
                             child: CodeField(
                               controller: _code,
                               textStyle: const TextStyle(
                                 fontFamily: 'FiraCode',
                                 fontSize: 14,
                               ),
-                              wrap: true,
+                              wrap: false,
                               minLines: 12,
                               maxLines: null,
                             ),

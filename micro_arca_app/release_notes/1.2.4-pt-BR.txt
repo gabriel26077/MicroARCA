@@ -1,0 +1,3 @@
+Melhorada a busca de kits em celulares com Android 8 a 10.
+Corrigida a confirmação da autorização do kit pelo Android antes de conectar.
+Ajustada a tela Novo projeto para manter os campos e botões acessíveis com o teclado aberto em telas pequenas.

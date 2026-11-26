@@ -1,5 +1,14 @@
 # 🤖 ProjetoARCA
 
+## Revisão atual do MicroARCA
+
+O código desta revisão reúne o aplicativo Android **1.2.4+9**, os módulos
+MicroPython da placa e seus testes. Inclui mudanças posteriores aos ensaios
+da monografia, que utilizaram também versões anteriores do aplicativo.
+O histórico de versões está em [release_notes](micro_arca_app/release_notes/).
+Consulte os [testes automatizados](docs/testes-automatizados.md) e as
+[demonstrações com fotos, exemplos e vídeos](https://github.com/gabriel26077/MicroARCA-demonstracoes).
+
 > ⚠️ **Nota:** Este projeto encontra-se atualmente em fase de **MVP (Mínimo Produto Viável)**.
 
 O **ProjetoARCA** (**A**prendizado, **R**obótica e **C**omputação **A**cessível) é uma iniciativa que nasceu para democratizar o ensino de robótica e programação em escolas. 
@@ -22,7 +31,7 @@ O ecossistema é composto por duas frentes integradas que se comunicam de forma 
 A migração BLE está na fase de validação em bancada. O envio usa arquivo temporário
 e verificação SHA-256; execução e parada são confirmadas pelo interpretador.
 Veja o **[guia de instalação, uso e testes](embedded/README.md)** para carregar os
-quatro arquivos necessários na placa. A placa atende um celular por vez.
+cinco arquivos necessários na placa. A placa atende um celular por vez.
 
 Esse dispositivo embarcado é extremamente versátil e pode dar vida a:
 - Um pequeno robô móvel.
@@ -33,7 +42,7 @@ Esse dispositivo embarcado é extremamente versátil e pode dar vida a:
 
 #### 📱 Aplicativo (Interface do Usuário)
 As imagens abaixo registram a interface anterior à migração BLE. A conexão atual
-é feita pela aba **Kits**, com descoberta Bluetooth:
+é iniciada pelo **botão Bluetooth** na parte superior da tela:
 
 <p align="center">
   <img src="./pictures/ediotor-page.png" width="31%" alt="Editor de Código" />

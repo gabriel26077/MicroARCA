@@ -1,0 +1,7 @@
+<pt-BR>
+• Editor Python com rolagem horizontal, sem quebra automática de linhas.
+• Aparência clara, escura ou conforme o sistema, com preferência salva.
+• Nova aba Bibliotecas e acesso à conexão pelo botão Bluetooth.
+• Lupa de encaixe no editor de blocos, com botão para ativar ou desativar.
+• Cores originais do modo claro e título com estrelinhas preservados.
+</pt-BR>

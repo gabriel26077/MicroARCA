@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'libraries_page.dart';
+import '../services/companion_devices.dart';
 import '../services/micropython_repl_service.dart';
 
 class SettingsPage extends StatelessWidget {
@@ -23,7 +23,21 @@ class SettingsPage extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Ligue a placa e procure o nome ARCA correspondente ao seu kit.',
+              'Ligue a placa e toque em Procurar kits. No Android 8 ou mais '
+              'recente, escolha o kit ARCA na janela do Android.',
+            ),
+            OutlinedButton.icon(
+              onPressed: scanning || connecting
+                  ? null
+                  : () async {
+                      final kit = await showDialog<AssociatedKit>(
+                        context: context,
+                        builder: (_) => _AssociatedKitsDialog(service: service),
+                      );
+                      if (kit != null) await service.connectAssociatedKit(kit);
+                    },
+              icon: const Icon(Icons.devices),
+              label: const Text('Kits associados'),
             ),
             const SizedBox(height: 16),
             Card(
@@ -68,24 +82,6 @@ class SettingsPage extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(height: 12),
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.local_library_outlined),
-                title: const Text('Bibliotecas'),
-                subtitle: Text(
-                  service.isConnected
-                      ? 'Catálogo oficial, instalação e remoção no kit'
-                      : 'Instale e organize pacotes oficiais',
-                ),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const LibrariesPage(),
-                  ),
-                ),
-              ),
-            ),
             if (service.isConnected && service.libraryManagerAvailable) ...[
               const SizedBox(height: 12),
               _AutorunCard(service: service),
@@ -97,8 +93,10 @@ class SettingsPage extends StatelessWidget {
                   child: ListTile(
                     leading: const Icon(Icons.memory),
                     title: Text(kit.name.isEmpty ? 'Kit ARCA' : kit.name),
-                    subtitle: Text('${kit.id}\nSinal: ${kit.rssi} dBm'),
-                    isThreeLine: true,
+                    subtitle: Text(service.usesCompanionDiscovery
+                        ? kit.id
+                        : '${kit.id}\nSinal: ${kit.rssi} dBm'),
+                    isThreeLine: !service.usesCompanionDiscovery,
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () => service.connect(kit),
                   ),
@@ -121,6 +119,118 @@ class SettingsPage extends StatelessWidget {
       },
     );
   }
+}
+
+class _AssociatedKitsDialog extends StatefulWidget {
+  const _AssociatedKitsDialog({required this.service});
+
+  final MicroPythonREPLService service;
+
+  @override
+  State<_AssociatedKitsDialog> createState() => _AssociatedKitsDialogState();
+}
+
+class _AssociatedKitsDialogState extends State<_AssociatedKitsDialog> {
+  late Future<List<AssociatedKit>> _kits;
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _kits = widget.service.associatedKits();
+  }
+
+  Future<void> _forget(AssociatedKit kit) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Esquecer ${kit.name}?'),
+        content: const Text(
+          'Remove a autorização do Android e desconecta este kit, se estiver '
+          'conectado. Os programas gravados na placa permanecem nela.',
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancelar')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Esquecer')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await widget.service.forgetKit(kit);
+      if (mounted) setState(() => _kits = widget.service.associatedKits());
+    } catch (error) {
+      if (mounted) {
+        setState(() => _error = 'Não foi possível esquecer o kit: $error');
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Kits associados'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: FutureBuilder<List<AssociatedKit>>(
+            future: _kits,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState != ConnectionState.done) {
+                return const Center(
+                    heightFactor: 2, child: CircularProgressIndicator());
+              }
+              if (snapshot.hasError) {
+                return Text(
+                    'Não foi possível consultar os kits: ${snapshot.error}');
+              }
+              final kits = snapshot.data ?? [];
+              if (kits.isEmpty) {
+                return const Text(
+                    'Nenhum kit associado. Use Procurar kits para '
+                    'autorizar uma placa no Android 8 ou mais recente.');
+              }
+              return SingleChildScrollView(
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  if (_error != null)
+                    Text(_error!,
+                        style: TextStyle(
+                            color: Theme.of(context).colorScheme.error)),
+                  if (_busy) const LinearProgressIndicator(),
+                  for (final kit in kits)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(kit.name),
+                      subtitle: Text(kit.id),
+                      onTap: _busy || widget.service.isConnected
+                          ? null
+                          : () => Navigator.pop(context, kit),
+                      trailing: IconButton(
+                        tooltip: 'Esquecer kit',
+                        onPressed: _busy ? null : () => _forget(kit),
+                        icon: const Icon(Icons.link_off),
+                      ),
+                    ),
+                ]),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: _busy ? null : () => Navigator.pop(context),
+              child: const Text('Fechar'))
+        ],
+      );
 }
 
 class _AutorunCard extends StatelessWidget {

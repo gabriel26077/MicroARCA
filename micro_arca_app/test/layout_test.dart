@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:micro_arca_app/screens/main_screen.dart';
 
 import 'memory_project_storage.dart';
+import 'libraries_page_test.dart' show EmptyCatalogRepository;
 
 void main() {
   for (final width in [320.0, 412.0]) {
@@ -13,7 +14,10 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
       addTearDown(tester.view.resetViewInsets);
       await tester.pumpWidget(
-        MaterialApp(home: MainScreen(projectStorage: MemoryProjectStorage())),
+        MaterialApp(
+            home: MainScreen(
+                projectStorage: MemoryProjectStorage(),
+                catalogRepository: EmptyCatalogRepository())),
       );
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
@@ -27,7 +31,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       expect(find.text('Saída do programa'), findsOneWidget);
-      await tester.tap(find.byTooltip('Kits'));
+      await tester.tap(find.byTooltip('Bibliotecas'));
+      await tester.pumpAndSettle();
+      expect(find.text('Procurar kits'), findsNothing);
+      await tester.tap(find.byTooltip('Conectar ao kit'));
       await tester.pumpAndSettle();
       expect(find.text('Procurar kits'), findsOneWidget);
       expect(tester.takeException(), isNull);

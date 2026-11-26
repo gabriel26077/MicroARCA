@@ -1,0 +1,1 @@
+Novo bloco Repetir enquanto na categoria Controle: repete os comandos enquanto uma condição for verdadeira e continua nos próximos blocos quando ela for falsa.

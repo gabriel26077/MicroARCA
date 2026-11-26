@@ -1,0 +1,4 @@
+Seleção de kits pela janela de dispositivos do Android (Android 8 ou mais recente).
+Lista de kits autorizados, com reconexão e opção de esquecer a associação.
+Pedido para ativar o Bluetooth quando estiver desligado, continuando a busca após a confirmação.
+Melhorias no cancelamento da busca e na verificação de autorização Bluetooth.

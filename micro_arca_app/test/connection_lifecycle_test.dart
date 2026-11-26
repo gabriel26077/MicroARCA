@@ -10,9 +10,20 @@ void main() {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   final service = MicroPythonREPLService();
 
+  setUp(() {
+    messenger.setMockMethodCallHandler(
+      const MethodChannel('arca/companion_devices'),
+      (_) async => 'legacy',
+    );
+  });
+
   tearDown(() async {
     messenger.setMockMethodCallHandler(channel, null);
     await service.disconnect();
+    messenger.setMockMethodCallHandler(
+      const MethodChannel('arca/companion_devices'),
+      null,
+    );
   });
 
   test('cancelar durante a permissão não inicia BLE quando a resposta chega',

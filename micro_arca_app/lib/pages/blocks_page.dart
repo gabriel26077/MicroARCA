@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../services/block_project_storage.dart';
@@ -115,6 +116,8 @@ class _BlocksPageState extends State<BlocksPage> {
   String? _notice;
   String? _libraryWarning;
   bool _initializing = false;
+  bool _webReady = false;
+  bool _loupeEnabled = true;
   bool _blockActionsOpen = false;
   bool _variableShortcutsOpen = false;
 
@@ -133,10 +136,45 @@ class _BlocksPageState extends State<BlocksPage> {
     unawaited(_initialize());
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_webReady) unawaited(_syncTheme());
+  }
+
+  Future<void> _syncTheme() async {
+    if (!mounted) return;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    await _controller?.setBackgroundColor(
+        Theme.of(context).brightness == Brightness.light
+            ? const Color(0xfff4fafb)
+            : Theme.of(context).colorScheme.surface);
+    await _controller?.runJavaScript('window.microArca.setDarkMode($dark);');
+  }
+
+  Future<void> _toggleLoupe() async {
+    final enabled = !_loupeEnabled;
+    try {
+      if (_webReady) {
+        await _controller?.runJavaScript(
+          'window.microArca.setLoupeEnabled($enabled);',
+        );
+      }
+      if (!mounted) return;
+      setState(() => _loupeEnabled = enabled);
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setBool('editor.dragLoupe', enabled);
+    } catch (_) {
+      _showMessage('Não foi possível atualizar a preferência da lupa.');
+    }
+  }
+
   Future<void> _initialize() async {
     if (_controller != null || _initializing) return;
     _initializing = true;
     try {
+      final preferences = await SharedPreferences.getInstance();
+      _loupeEnabled = preferences.getBool('editor.dragLoupe') ?? true;
       try {
         _savedWorkspace = await _storage.loadWorkspace();
       } catch (_) {
@@ -151,7 +189,9 @@ class _BlocksPageState extends State<BlocksPage> {
       if (!mounted) return;
       final controller = WebViewController()
         ..setJavaScriptMode(JavaScriptMode.unrestricted)
-        ..setBackgroundColor(const Color(0xfff4fafb))
+        ..setBackgroundColor(Theme.of(context).brightness == Brightness.light
+            ? const Color(0xfff4fafb)
+            : Theme.of(context).colorScheme.surface)
         ..setNavigationDelegate(
           NavigationDelegate(
             onNavigationRequest: (request) {
@@ -188,6 +228,11 @@ class _BlocksPageState extends State<BlocksPage> {
       }
       switch (envelope['type']) {
         case 'ready':
+          _webReady = true;
+          await _syncTheme();
+          await _controller?.runJavaScript(
+            'window.microArca.setLoupeEnabled($_loupeEnabled);',
+          );
           await _controller?.runJavaScript(
             'window.microArca.registerLibraryManifests('
             '${jsonEncode(_libraryManifests.map((item) => item.toBridgeJson()).toList())}'
@@ -732,7 +777,9 @@ class _BlocksPageState extends State<BlocksPage> {
                 Expanded(
                   child: DecoratedBox(
                     decoration: BoxDecoration(
-                      color: const Color(0xfff4fafb),
+                      color: (Theme.of(context).brightness == Brightness.light
+                          ? const Color(0xfff4fafb)
+                          : Theme.of(context).colorScheme.surface),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: SingleChildScrollView(
@@ -896,7 +943,9 @@ class _BlocksPageState extends State<BlocksPage> {
         final busy = _service.state == KitState.uploading ||
             _service.state == KitState.managingLibraries;
         return Scaffold(
-          backgroundColor: const Color(0xfff4fafb),
+          backgroundColor: (Theme.of(context).brightness == Brightness.light
+              ? const Color(0xfff4fafb)
+              : Theme.of(context).colorScheme.surface),
           body: SafeArea(
             child: Stack(
               fit: StackFit.expand,
@@ -930,7 +979,9 @@ class _BlocksPageState extends State<BlocksPage> {
                   top: 14,
                   child: Center(
                     child: Material(
-                      color: const Color(0xf2ffffff),
+                      color: (Theme.of(context).brightness == Brightness.light
+                          ? const Color(0xf2ffffff)
+                          : Theme.of(context).colorScheme.surfaceContainerHigh),
                       elevation: 3,
                       borderRadius: BorderRadius.circular(18),
                       child: Padding(
@@ -964,7 +1015,9 @@ class _BlocksPageState extends State<BlocksPage> {
                   right: 10,
                   top: 10,
                   child: Material(
-                    color: const Color(0xf2ffffff),
+                    color: (Theme.of(context).brightness == Brightness.light
+                        ? const Color(0xf2ffffff)
+                        : Theme.of(context).colorScheme.surfaceContainerHigh),
                     elevation: 3,
                     shape: const CircleBorder(),
                     child: PopupMenuButton<String>(
@@ -1099,6 +1152,24 @@ class _BlocksPageState extends State<BlocksPage> {
                               focusLibrary: library.packageId,
                             ),
                           ),
+                        const SizedBox(height: 8),
+                        Semantics(
+                          toggled: _loupeEnabled,
+                          child: _FloatingControl(
+                            compact: true,
+                            tooltip: _loupeEnabled
+                                ? 'Desativar lupa de encaixe'
+                                : 'Ativar lupa de encaixe',
+                            icon:
+                                _loupeEnabled ? Icons.search : Icons.search_off,
+                            color: _loupeEnabled
+                                ? const Color(0xff00a9bd)
+                                : Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                            onPressed: () => unawaited(_toggleLoupe()),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -1156,7 +1227,11 @@ class _BlocksPageState extends State<BlocksPage> {
                     bottom: 84,
                     child: Center(
                       child: Material(
-                        color: const Color(0xf2ffffff),
+                        color: (Theme.of(context).brightness == Brightness.light
+                            ? const Color(0xf2ffffff)
+                            : Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerHigh),
                         elevation: 4,
                         borderRadius: BorderRadius.circular(28),
                         child: Padding(
@@ -1247,7 +1322,9 @@ class _FloatingControl extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: const Color(0xf2ffffff),
+      color: (Theme.of(context).brightness == Brightness.light
+          ? const Color(0xf2ffffff)
+          : Theme.of(context).colorScheme.surfaceContainerHigh),
       elevation: 3,
       shape: const CircleBorder(),
       child: IconButton(
@@ -1350,12 +1427,14 @@ const _blockSections = [
   _BlockSection(
     id: 'control',
     title: 'Controle',
-    summary: 'Repetir para sempre, se, se/senão, esperar',
+    summary: 'Repetir para sempre ou enquanto, se, se/senão, esperar',
     icon: Icons.call_split,
     color: Color(0xff1565c0),
     blocks: [
       _BlockEntry('microarca_forever', Icons.all_inclusive,
           'Repetir para sempre', 'Executa continuamente os blocos encaixados.'),
+      _BlockEntry('microarca_while', Icons.loop, 'Repetir enquanto',
+          'Repete enquanto a condição for verdadeira e depois continua.'),
       _BlockEntry('controls_if', Icons.call_split, 'Se',
           'Executa blocos somente quando a condição for verdadeira.'),
       _BlockEntry('controls_ifelse', Icons.alt_route, 'Se / senão',

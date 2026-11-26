@@ -127,7 +127,11 @@ class ArcaBLE(io.IOBase):
             handle = data[1]
             if handle == self._control_handle:
                 value = self._ble.gatts_read(handle)
-                if value == b"R" and self._handshake and not self._inflight:
+                if value == b"R" and not self._inflight:
+                    # Uma nova sessão do app pode reutilizar a conexão BLE.
+                    # Não dependa de outro CONNECT para identificar o canal.
+                    # Uma indication em voo termina antes de aceitar a repetição.
+                    self._handshake = True
                     self._ready = True
                     self._tx = bytearray()
                     self.write(b"ARCA-BLE/1\n")

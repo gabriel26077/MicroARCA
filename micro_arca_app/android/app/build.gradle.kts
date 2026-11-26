@@ -32,6 +32,10 @@ android {
         jvmTarget = JavaVersion.VERSION_11.toString()
     }
 
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
+
     defaultConfig {
         applicationId = "com.microarca.app"
         // You can update the following values to match your application needs.
@@ -54,6 +58,9 @@ android {
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix = ".teste"
+        }
         release {
             if (uploadKeyFile.isFile) {
                 signingConfig = signingConfigs.getByName("upload")
@@ -64,4 +71,9 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.16.1")
 }

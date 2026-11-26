@@ -15,6 +15,7 @@ vm.runInContext(`
   globalThis.testAPI = { Blockly, pythonGenerator, registerLibraryManifests, MicroArcaIO };
 `, context);
 const { Blockly, pythonGenerator, registerLibraryManifests, MicroArcaIO } = context.testAPI;
+export { Blockly, pythonGenerator };
 let checks = 0;
 export const generatedPrograms = [];
 function workspace() { return new Blockly.Workspace(); }

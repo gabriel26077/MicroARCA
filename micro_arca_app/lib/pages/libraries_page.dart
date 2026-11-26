@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../services/library_catalog.dart';
@@ -10,10 +11,12 @@ enum _LibrarySection { online, phone, device }
 class LibrariesPage extends StatefulWidget {
   const LibrariesPage({
     super.key,
+    this.embedded = false,
     this.catalogRepository,
     this.packageStorage,
   });
 
+  final bool embedded;
   final LibraryCatalogRepository? catalogRepository;
   final PackageInstallationStorage? packageStorage;
 
@@ -34,6 +37,7 @@ class _LibrariesPageState extends State<LibrariesPage> {
   DevicePackageRegistry? _registry;
   final Map<String, String> _selectedVersions = {};
   bool _loadingKit = false;
+  String? _loadedDevice;
   bool _loadingCatalog = true;
   bool _catalogBusy = false;
   String? _catalogError;
@@ -47,7 +51,29 @@ class _LibrariesPageState extends State<LibrariesPage> {
   void initState() {
     super.initState();
     _loadCatalog();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _refreshKit());
+    _service.addListener(_connectionChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _connectionChanged());
+  }
+
+  void _connectionChanged() {
+    if (!mounted) return;
+    if (!_service.isConnected) {
+      _loadedDevice = null;
+      _installed = const [];
+      _registry = null;
+      return;
+    }
+    final id = _service.device?.id;
+    if (_service.isReady && id != null && id != _loadedDevice) {
+      _loadedDevice = id;
+      unawaited(_refreshKit());
+    }
+  }
+
+  @override
+  void dispose() {
+    _service.removeListener(_connectionChanged);
+    super.dispose();
   }
 
   Future<void> _loadCatalog() async {
@@ -461,7 +487,7 @@ class _LibrariesPageState extends State<LibrariesPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Bibliotecas')),
+      appBar: widget.embedded ? null : AppBar(title: const Text('Bibliotecas')),
       body: ListenableBuilder(
         listenable: _service,
         builder: (context, _) {
